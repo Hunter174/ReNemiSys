@@ -1,0 +1,70 @@
+[gd_scene load_steps=11 format=3 uid="uid://bpmj61kbwpx74"]
+
+[ext_resource type="Script" path="res://scripts/blue_goblin.gd" id="1_nikem"]
+[ext_resource type="Texture2D" uid="uid://do1jmonb331gp" path="res://assets/TinySwords/Factions/Goblins/Troops/Torch/Blue/Torch_Blue.png" id="1_ujfup"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_740h3"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(0, 0, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_vopid"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(192, 0, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_xiqp6"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(384, 0, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_salk6"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(576, 0, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_xr08o"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(768, 0, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_oowck"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(960, 0, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0nori"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(1152, 0, 192, 192)
+
+[sub_resource type="SpriteFrames" id="SpriteFrames_cfuow"]
+animations = [{
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_740h3")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_vopid")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_xiqp6")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_salk6")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_xr08o")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_oowck")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_0nori")
+}],
+"loop": true,
+"name": &"idle",
+"speed": 14.0
+}]
+
+[node name="Node2D" type="Node2D"]
+script = ExtResource("1_nikem")
+
+[node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
+sprite_frames = SubResource("SpriteFrames_cfuow")
+animation = &"idle"
+autoplay = "idle"
+frame_progress = 0.113
