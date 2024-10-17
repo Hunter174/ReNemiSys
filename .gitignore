@@ -1,4 +1,54 @@
-# Godot 4+ specific ignores
-.godot/
-./assets
-.idea
+# Godot-specific ignores
+
+# Godot's import and cache files
+.import/       # Cache for imported assets
+.godot/        # Editor-specific data
+
+# Godot's exported project binary
+export_presets.cfg    # Export settings (if you'd prefer to keep this local)
+export/               # The folder where exported games are placed
+
+# Ignoring asset cache
+.assets/       # Asset cache or previews
+
+# Ignore editor settings (per user)
+.editor_settings-3.tres  # Godot 3.x
+.editor_settings-4.tres  # Godot 4.x
+
+# Mono-specific files (if you're not using Mono)
+mono/          # Mono-related files for C#
+
+# C++ specific ignores (for GDExtension builds)
+bin/           # Compiled binaries and libraries
+build/         # Build directory for C++ or GDNative modules
+lib/           # Libraries generated from C++ or GDExtension
+*.so           # Linux shared libraries
+*.dll          # Windows shared libraries
+*.dylib        # macOS shared libraries
+*.exe          # Windows executables
+*.obj          # Object files
+*.o            # Object files from compilation
+*.a            # Static library files
+*.lib          # Windows static libraries
+*.log          # Log files generated during the build
+
+# Ignore SCons-related files
+scons_cache/   # SCons cache
+
+# Miscellaneous
+.DS_Store      # macOS system file
+Thumbs.db      # Windows system file
+
+# IDE-specific ignores
+
+# JetBrains IDE (e.g., CLion, PyCharm, Rider)
+.idea/                # IDE project settings (you probably don't want to track this)
+*.iml                # Module files for JetBrains IDEs
+*.out/               # Output directories for compiled binaries or run configurations
+*.sln                # Visual Studio solution file (optional)
+.vscode/             # Visual Studio Code settings
+*.user               # IDE user-specific settings (VS, CLion, etc.)
+
+
+# ignore the Asset Files
+ReNemiSys/assets
