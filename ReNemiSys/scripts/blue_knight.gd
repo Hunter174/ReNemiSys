@@ -1,28 +1,75 @@
 extends CharacterBody2D
 
-
-const SPEED = 300.0
-const JUMP_VELOCITY = -400.0
-
-# Get the gravity from the project settings to be synced with RigidBody nodes.
-var gravity = ProjectSettings.get_setting("physics/2d/default_gravity")
+@onready var animated_sprite_2d = $AnimatedSprite2D
+@export var speed = 400
+@onready var attack_timer = $Timer
+@onready var attack_zone = $AttackZone
 
 
-func _physics_process(_delta):
-	# Add the gravity.
-	#if not is_on_floor():
-		#velocity.y += gravity * delta
+var input_direction = Vector2(0,0)
+var attacking = false
+var enemy_in_range = false
 
-	# Handle jump.
-	if Input.is_action_just_pressed("ui_accept") and is_on_floor():
-		velocity.y = JUMP_VELOCITY
+func _get_input():
+	if attacking != true:
+		input_direction = Input.get_vector("move_left", "move_right", "move_up", "move_down")
+		velocity = input_direction * speed
+		
+		if Input.is_action_just_pressed('left_click'):
+			attacking = true
+			attack_timer.start()
+			velocity = Vector2(0,0)
+	
+func _on_attack_timeout():
+	attacking = false
+	
+func _on_detection_area_body_entered(body):
+	#print("detected body: ")
+	print(body)
+	if body.is_in_group("enemy") and attacking == true:
+		body.take_damage()
+		enemy_in_range = true
 
-	# Get the input direction and handle the movement/deceleration.
-	# As good practice, you should replace UI actions with custom gameplay actions.
-	var direction = Input.get_axis("ui_left", "ui_right")
-	if direction:
-		velocity.x = direction * SPEED
+# Function to handle detection when an object exits the area
+func _on_detection_area_body_exited(body):
+	if body.is_in_group("enemy"):
+		#print("bye")
+		enemy_in_range = false
+	
+func _get_attack_state():
+	if input_direction.x != 0:
+		if sign(input_direction.x) == -1:
+			animated_sprite_2d.flip_h = true
+			
+		if sign(input_direction.x) == 1:
+			animated_sprite_2d.flip_h = false	
+		animated_sprite_2d.play('attack')
+		
+	elif sign(input_direction.y) == -1:
+		animated_sprite_2d.play('attack_up')	
+	
+	elif sign(input_direction.y) == 1:
+		animated_sprite_2d.play('attack_down')	
 	else:
-		velocity.x = move_toward(velocity.x, 0, SPEED)
-
+		animated_sprite_2d.play('attack')
+	
+	
+func update_state():
+	if attacking == true:
+		_get_attack_state()
+		
+	elif velocity != Vector2(0,0):
+		if sign(input_direction.x) == -1:
+			animated_sprite_2d.flip_h = true
+			
+		if sign(input_direction.x) == 1:
+			animated_sprite_2d.flip_h = false	
+			
+		animated_sprite_2d.play('walking')
+	else:
+		animated_sprite_2d.play('idle')	
+	
+func _physics_process(delta):
+	_get_input()
 	move_and_slide()
+	update_state()

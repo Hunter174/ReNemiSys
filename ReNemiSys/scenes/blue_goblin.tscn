@@ -1,4 +1,4 @@
-[gd_scene load_steps=11 format=3 uid="uid://bpmj61kbwpx74"]
+[gd_scene load_steps=19 format=3 uid="uid://bpmj61kbwpx74"]
 
 [ext_resource type="Script" path="res://scripts/blue_goblin.gd" id="1_nikem"]
 [ext_resource type="Texture2D" uid="uid://do1jmonb331gp" path="res://assets/TinySwords/Factions/Goblins/Troops/Torch/Blue/Torch_Blue.png" id="1_ujfup"]
@@ -31,6 +31,30 @@ region = Rect2(960, 0, 192, 192)
 atlas = ExtResource("1_ujfup")
 region = Rect2(1152, 0, 192, 192)
 
+[sub_resource type="AtlasTexture" id="AtlasTexture_fxaq4"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(0, 192, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_4ptvt"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(192, 192, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_wth0c"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(384, 192, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_mdioy"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(576, 192, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0gefn"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(768, 192, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_thbap"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(960, 192, 192, 192)
+
 [sub_resource type="SpriteFrames" id="SpriteFrames_cfuow"]
 animations = [{
 "frames": [{
@@ -58,13 +82,61 @@ animations = [{
 "loop": true,
 "name": &"idle",
 "speed": 14.0
+}, {
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_fxaq4")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_4ptvt")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_wth0c")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_mdioy")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_0gefn")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_thbap")
+}],
+"loop": true,
+"name": &"walking",
+"speed": 12.0
 }]
 
-[node name="Node2D" type="Node2D"]
+[sub_resource type="CircleShape2D" id="CircleShape2D_2nvyc"]
+radius = 21.095
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_8usp2"]
+radius = 187.011
+
+[node name="RigidBody" type="RigidBody2D"]
+lock_rotation = true
 script = ExtResource("1_nikem")
 
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
 sprite_frames = SubResource("SpriteFrames_cfuow")
-animation = &"idle"
+animation = &"walking"
 autoplay = "idle"
-frame_progress = 0.113
+frame_progress = 0.542924
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(-1, 9)
+shape = SubResource("CircleShape2D_2nvyc")
+
+[node name="GoblinArea" type="Area2D" parent="."]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="GoblinArea"]
+shape = SubResource("CircleShape2D_8usp2")
+
+[node name="RayCast2D" type="RayCast2D" parent="."]
+use_parent_material = true
+target_position = Vector2(0, 0)
+
+[node name="Line2D" type="Line2D" parent="."]
+
+[connection signal="body_entered" from="GoblinArea" to="." method="_on_detection_area_body_entered"]
+[connection signal="body_exited" from="GoblinArea" to="." method="_on_detection_area_body_exited"]

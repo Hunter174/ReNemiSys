@@ -1,6 +1,6 @@
 extends RigidBody2D
 
-
+var health = 5
 var patrol_speed = 200
 var direction = Vector2(1,0) #initial direction
 var prev_direction = Vector2(1,0)
@@ -16,8 +16,7 @@ var line_of_sight = 150
 @onready var animated_sprite = $AnimatedSprite2D  # Reference to the sprite for animations
 
 func _ready():
-	add_to_group('enemy')
-	
+	add_to_group("enemy")
 	gravity_scale = 0 # We dont need gravity yet
 	
 	# initialize the debug line
@@ -25,9 +24,6 @@ func _ready():
 	line2d.add_point(raycast.position)
 	line2d.add_point(raycast.target_position)
 	randomize()
-	
-func take_damage():
-	print('ow')
 
 func _physics_process(delta):
 
@@ -40,6 +36,9 @@ func _physics_process(delta):
 
 	# Update ray target position if the enemy changes direction
 	update_direction()
+	
+func take_damage():
+	print('ow')
 
 func update_direction():
 	# Check if the direction has changed

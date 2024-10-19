@@ -1,0 +1,14 @@
+[gd_scene load_steps=2 format=3 uid="uid://bv3jcxk6c13g2"]
+
+[ext_resource type="PackedScene" uid="uid://cw8s1djot7eby" path="res://scenes/red_goblin.tscn" id="1_2id5q"]
+
+[node name="RedFaction" type="Node2D"]
+
+[node name="RigidBody2D" parent="." instance=ExtResource("1_2id5q")]
+position = Vector2(62, 22)
+
+[node name="RigidBody2D2" parent="." instance=ExtResource("1_2id5q")]
+position = Vector2(-80, -111)
+
+[node name="RigidBody2D3" parent="." instance=ExtResource("1_2id5q")]
+position = Vector2(-54, 129)
