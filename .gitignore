@@ -50,9 +50,15 @@ Thumbs.db      # Windows system file
 *.user               # IDE user-specific settings (VS, CLion, etc.)
 
 
-# ignore the Asset Files
+# Ignore certain folders
 ReNemiSys/assets
 ReNemiSys/.godot
+godot-cpp
 
-#ignore xml
+# Ignore other files
 *.xml
+*.dblite
+*.a
+*.json
+*.o
+*.dll
