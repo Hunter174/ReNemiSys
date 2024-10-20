@@ -1,7 +1,7 @@
 [gd_scene load_steps=36 format=3 uid="uid://br3elxnrfpr0n"]
 
+[ext_resource type="Script" path="res://scripts/player.gd" id="1_43xcg"]
 [ext_resource type="Texture2D" uid="uid://pm3c6si0y3lg" path="res://assets/TinySwords/Factions/Knights/Troops/Warrior/Blue/Warrior_Blue.png" id="1_kunpk"]
-[ext_resource type="Script" path="res://scripts/blue_knight.gd" id="1_t20kk"]
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_y4qtl"]
 atlas = ExtResource("1_kunpk")
@@ -248,7 +248,7 @@ radius = 23.0217
 radius = 37.0135
 
 [node name="CharacterBody2D" type="CharacterBody2D"]
-script = ExtResource("1_t20kk")
+script = ExtResource("1_43xcg")
 
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
 sprite_frames = SubResource("SpriteFrames_6v232")
@@ -293,5 +293,11 @@ position = Vector2(-66, 3)
 shape = SubResource("CircleShape2D_0sb3x")
 
 [connection signal="timeout" from="Timer" to="." method="_on_attack_timeout"]
-[connection signal="body_entered" from="AttackZone/AttackAreaRight" to="." method="_on_detection_area_body_entered"]
-[connection signal="body_exited" from="AttackZone/AttackAreaRight" to="." method="_on_detection_area_body_exited"]
+[connection signal="body_entered" from="AttackZone/AttackAreaRight" to="." method="_detection_body_entered_right"]
+[connection signal="body_exited" from="AttackZone/AttackAreaRight" to="." method="_detection_body_exited_right"]
+[connection signal="body_entered" from="AttackZone/AttackAreaUp" to="." method="_detection_body_entered_up"]
+[connection signal="body_exited" from="AttackZone/AttackAreaUp" to="." method="_detection_body_exited_up"]
+[connection signal="body_entered" from="AttackZone/AttackAreaDown" to="." method="_detection_body_entered_down"]
+[connection signal="body_exited" from="AttackZone/AttackAreaDown" to="." method="_detection_body_exited_down"]
+[connection signal="body_entered" from="AttackZone/AttackAreaLeft" to="." method="_detection_body_entered_left"]
+[connection signal="body_exited" from="AttackZone/AttackAreaLeft" to="." method="_detection_body_exited_left"]

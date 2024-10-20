@@ -1,6 +1,6 @@
 extends RigidBody2D
 
-
+var health = 5
 var patrol_speed = 200
 var direction = Vector2(1,0) #initial direction
 var prev_direction = Vector2(1,0)
@@ -9,11 +9,13 @@ var change_dir = 2.0 # change the direction after 2 sec
 var reverse_collision = true
 var player_in_range = false  # Tracks if the player is within the detection range
 var line_of_sight = 150
+var dead = false
 
-@onready var detection_area = $Area2D
+@onready var detection_area = $GoblinArea
 @onready var raycast = $RayCast2D
 @onready var line2d = $Line2D  # Reference to Line2D for visualizing the ray
 @onready var animated_sprite = $AnimatedSprite2D  # Reference to the sprite for animations
+@onready var die_timer = $Timer
 
 func _ready():
 	add_to_group('enemy')
@@ -27,19 +29,29 @@ func _ready():
 	randomize()
 	
 func take_damage():
-	print('ow')
+	health -= 1
+	if health <= 0:
+		die()
+		
+func die():
+	dead = true
+	die_timer.start()
+	animated_sprite.play("die")
+
+func _on_timer_timeout():
+	queue_free()
 
 func _physics_process(delta):
+	if dead == false:
+		# If the player is detected in range, check line of sight
+		if player_in_range:
+			check_line_of_sight(delta)
+		else:
+			# Patrol if no player is in range or visible
+			patrol(delta)
 
-	# If the player is detected in range, check line of sight
-	if player_in_range:
-		check_line_of_sight(delta)
-	else:
-		# Patrol if no player is in range or visible
-		patrol(delta)
-
-	# Update ray target position if the enemy changes direction
-	update_direction()
+		# Update ray target position if the enemy changes direction
+		update_direction()
 
 func update_direction():
 	# Check if the direction has changed

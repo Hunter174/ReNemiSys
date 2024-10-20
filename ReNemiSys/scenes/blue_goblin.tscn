@@ -1,7 +1,64 @@
-[gd_scene load_steps=19 format=3 uid="uid://bpmj61kbwpx74"]
+[gd_scene load_steps=34 format=3 uid="uid://bpmj61kbwpx74"]
 
-[ext_resource type="Script" path="res://scripts/blue_goblin.gd" id="1_nikem"]
 [ext_resource type="Texture2D" uid="uid://do1jmonb331gp" path="res://assets/TinySwords/Factions/Goblins/Troops/Torch/Blue/Torch_Blue.png" id="1_ujfup"]
+[ext_resource type="Script" path="res://scripts/goblins/classes/torch_goblin.gd" id="1_vw8bj"]
+[ext_resource type="Texture2D" uid="uid://dlg763kbkda1u" path="res://assets/TinySwords/Factions/Knights/Troops/Dead/Dead.png" id="2_nt1wy"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_j6du3"]
+atlas = ExtResource("2_nt1wy")
+region = Rect2(0, 0, 128, 128)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_lkuj5"]
+atlas = ExtResource("2_nt1wy")
+region = Rect2(128, 0, 128, 128)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_3ikuh"]
+atlas = ExtResource("2_nt1wy")
+region = Rect2(256, 0, 128, 128)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_7rd2d"]
+atlas = ExtResource("2_nt1wy")
+region = Rect2(384, 0, 128, 128)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_gbrja"]
+atlas = ExtResource("2_nt1wy")
+region = Rect2(512, 0, 128, 128)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_nptyl"]
+atlas = ExtResource("2_nt1wy")
+region = Rect2(640, 0, 128, 128)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_rwovk"]
+atlas = ExtResource("2_nt1wy")
+region = Rect2(768, 0, 128, 128)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_bdmc3"]
+atlas = ExtResource("2_nt1wy")
+region = Rect2(0, 128, 128, 128)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_8boqb"]
+atlas = ExtResource("2_nt1wy")
+region = Rect2(128, 128, 128, 128)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_qs8yj"]
+atlas = ExtResource("2_nt1wy")
+region = Rect2(256, 128, 128, 128)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_1ew2b"]
+atlas = ExtResource("2_nt1wy")
+region = Rect2(384, 128, 128, 128)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_v84sq"]
+atlas = ExtResource("2_nt1wy")
+region = Rect2(512, 128, 128, 128)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_537dn"]
+atlas = ExtResource("2_nt1wy")
+region = Rect2(640, 128, 128, 128)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_uvc6y"]
+atlas = ExtResource("2_nt1wy")
+region = Rect2(768, 128, 128, 128)
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_740h3"]
 atlas = ExtResource("1_ujfup")
@@ -57,6 +114,53 @@ region = Rect2(960, 192, 192, 192)
 
 [sub_resource type="SpriteFrames" id="SpriteFrames_cfuow"]
 animations = [{
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_j6du3")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_lkuj5")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_3ikuh")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_7rd2d")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_gbrja")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_nptyl")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_rwovk")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_bdmc3")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_8boqb")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_qs8yj")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_1ew2b")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_v84sq")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_537dn")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_uvc6y")
+}],
+"loop": true,
+"name": &"die",
+"speed": 14.0
+}, {
 "frames": [{
 "duration": 1.0,
 "texture": SubResource("AtlasTexture_740h3")
@@ -115,13 +219,13 @@ radius = 187.011
 
 [node name="RigidBody" type="RigidBody2D"]
 lock_rotation = true
-script = ExtResource("1_nikem")
+script = ExtResource("1_vw8bj")
 
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
 sprite_frames = SubResource("SpriteFrames_cfuow")
-animation = &"walking"
+animation = &"die"
 autoplay = "idle"
-frame_progress = 0.542924
+frame_progress = 0.168846
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
 position = Vector2(-1, 9)
@@ -138,5 +242,8 @@ target_position = Vector2(0, 0)
 
 [node name="Line2D" type="Line2D" parent="."]
 
+[node name="Timer" type="Timer" parent="."]
+
 [connection signal="body_entered" from="GoblinArea" to="." method="_on_detection_area_body_entered"]
 [connection signal="body_exited" from="GoblinArea" to="." method="_on_detection_area_body_exited"]
+[connection signal="timeout" from="Timer" to="." method="_on_timer_timeout"]
