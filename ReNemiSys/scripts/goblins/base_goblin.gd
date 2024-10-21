@@ -16,9 +16,12 @@ var dead = false
 @onready var line2d = $Line2D  # Reference to Line2D for visualizing the ray
 @onready var animated_sprite = $AnimatedSprite2D  # Reference to the sprite for animations
 @onready var die_timer = $Timer
+@onready var gd_example = $GDExample
+
 
 func _ready():
 	add_to_group('enemy')
+
 	
 	gravity_scale = 0 # We dont need gravity yet
 	
@@ -26,7 +29,7 @@ func _ready():
 	line2d.show()
 	line2d.add_point(raycast.position)
 	line2d.add_point(raycast.target_position)
-	randomize()
+	#randomize()
 	
 func take_damage():
 	health -= 1
@@ -42,13 +45,21 @@ func _on_timer_timeout():
 	queue_free()
 
 func _physics_process(delta):
+	
+	if gd_example != null:
+		position = gd_example.position
+		print(gd_example.position)
+	
+	#position = gd_example.position
+	
 	if dead == false:
 		# If the player is detected in range, check line of sight
 		if player_in_range:
 			check_line_of_sight(delta)
 		else:
 			# Patrol if no player is in range or visible
-			patrol(delta)
+			#patrol(delta)
+			pass
 
 		# Update ray target position if the enemy changes direction
 		update_direction()
@@ -122,13 +133,15 @@ func check_line_of_sight(delta):
 		var collider = raycast.get_collider()
 		if collider.is_in_group("players"):
 			print("Player detected in line of sight!")
-			chase_player(collider, delta)
+			#chase_player(collider, delta)
 		else:
 			# If no player is detected, continue patrolling
-			patrol(delta)
+			#patrol(delta)
+			pass
 	else:
 		# If no collision is detected, continue patrolling
 		patrol(delta)
+		pass
 
 # Example function to chase the player
 func chase_player(player, delta):

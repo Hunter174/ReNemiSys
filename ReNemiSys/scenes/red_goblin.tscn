@@ -136,3 +136,8 @@ shape = SubResource("CircleShape2D_dpv3t")
 target_position = Vector2(450, 0)
 
 [node name="Line2D" type="Line2D" parent="."]
+
+[node name="GDExample" type="GDExample" parent="."]
+amplitude = 10.0
+speed = 1.0
+position = Vector2(3.21195, 1.52533)
