@@ -244,8 +244,8 @@ animations = [{
 [sub_resource type="CircleShape2D" id="CircleShape2D_q1v5g"]
 radius = 23.0217
 
-[sub_resource type="CircleShape2D" id="CircleShape2D_0sb3x"]
-radius = 37.0135
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_ergki"]
+size = Vector2(80, 52)
 
 [node name="CharacterBody2D" type="CharacterBody2D"]
 script = ExtResource("1_43xcg")
@@ -266,38 +266,23 @@ process_callback = 0
 wait_time = 0.5
 one_shot = true
 
-[node name="AttackZone" type="Node2D" parent="."]
+[node name="AttackZone" type="Area2D" parent="."]
 
-[node name="AttackAreaRight" type="Area2D" parent="AttackZone"]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="AttackZone"]
+scale = Vector2(2, 2)
+shape = SubResource("RectangleShape2D_ergki")
 
-[node name="2DCollisionShape" type="CollisionShape2D" parent="AttackZone/AttackAreaRight"]
-position = Vector2(62, 2)
-shape = SubResource("CircleShape2D_0sb3x")
+[node name="ColorRect" type="ColorRect" parent="AttackZone"]
+offset_left = -40.0
+offset_top = -26.0
+offset_right = 41.0
+offset_bottom = 25.0
 
-[node name="AttackAreaUp" type="Area2D" parent="AttackZone"]
-
-[node name="2DCollisionShape" type="CollisionShape2D" parent="AttackZone/AttackAreaUp"]
-position = Vector2(-1, -70)
-shape = SubResource("CircleShape2D_0sb3x")
-
-[node name="AttackAreaDown" type="Area2D" parent="AttackZone"]
-
-[node name="2DCollisionShape" type="CollisionShape2D" parent="AttackZone/AttackAreaDown"]
-position = Vector2(-2, 71)
-shape = SubResource("CircleShape2D_0sb3x")
-
-[node name="AttackAreaLeft" type="Area2D" parent="AttackZone"]
-
-[node name="2DCollisionShape" type="CollisionShape2D" parent="AttackZone/AttackAreaLeft"]
-position = Vector2(-66, 3)
-shape = SubResource("CircleShape2D_0sb3x")
+[node name="AttackTimer" type="Timer" parent="AttackZone/ColorRect"]
+one_shot = true
 
 [connection signal="timeout" from="Timer" to="." method="_on_attack_timeout"]
-[connection signal="body_entered" from="AttackZone/AttackAreaRight" to="." method="_detection_body_entered_right"]
-[connection signal="body_exited" from="AttackZone/AttackAreaRight" to="." method="_detection_body_exited_right"]
-[connection signal="body_entered" from="AttackZone/AttackAreaUp" to="." method="_detection_body_entered_up"]
-[connection signal="body_exited" from="AttackZone/AttackAreaUp" to="." method="_detection_body_exited_up"]
-[connection signal="body_entered" from="AttackZone/AttackAreaDown" to="." method="_detection_body_entered_down"]
-[connection signal="body_exited" from="AttackZone/AttackAreaDown" to="." method="_detection_body_exited_down"]
-[connection signal="body_entered" from="AttackZone/AttackAreaLeft" to="." method="_detection_body_entered_left"]
-[connection signal="body_exited" from="AttackZone/AttackAreaLeft" to="." method="_detection_body_exited_left"]
+[connection signal="body_entered" from="AttackZone" to="." method="_on_goblin_area_body_entered"]
+[connection signal="body_entered" from="AttackZone" to="." method="_on_AttackZone_body_entered"]
+[connection signal="body_exited" from="AttackZone" to="." method="_on_goblin_area_body_exited"]
+[connection signal="body_exited" from="AttackZone" to="." method="_on_AttackZone_body_exited"]

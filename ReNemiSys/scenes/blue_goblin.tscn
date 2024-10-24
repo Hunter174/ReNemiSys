@@ -1,8 +1,84 @@
-[gd_scene load_steps=34 format=3 uid="uid://bpmj61kbwpx74"]
+[gd_scene load_steps=53 format=3 uid="uid://bpmj61kbwpx74"]
 
 [ext_resource type="Texture2D" uid="uid://do1jmonb331gp" path="res://assets/TinySwords/Factions/Goblins/Troops/Torch/Blue/Torch_Blue.png" id="1_ujfup"]
 [ext_resource type="Script" path="res://scripts/goblins/classes/torch_goblin.gd" id="1_vw8bj"]
 [ext_resource type="Texture2D" uid="uid://dlg763kbkda1u" path="res://assets/TinySwords/Factions/Knights/Troops/Dead/Dead.png" id="2_nt1wy"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_nxsqd"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(0, 384, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_1xkhf"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(192, 384, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_6aqoa"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(384, 384, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_q8kvr"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(576, 384, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_xffnr"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(768, 384, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_co6mh"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(960, 384, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_rj0qu"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(0, 576, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_obaui"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(192, 576, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_qrq0c"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(384, 576, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_8o6i5"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(576, 576, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_gsuhe"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(768, 576, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_vuymp"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(960, 576, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_njsyr"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(384, 192, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_oq4jc"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(0, 768, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_qbr2s"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(192, 768, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_83kb1"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(384, 768, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_p67q3"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(576, 768, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_bgtnt"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(768, 768, 192, 192)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_l5ak6"]
+atlas = ExtResource("1_ujfup")
+region = Rect2(960, 768, 192, 192)
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_j6du3"]
 atlas = ExtResource("2_nt1wy")
@@ -116,6 +192,78 @@ region = Rect2(960, 192, 192, 192)
 animations = [{
 "frames": [{
 "duration": 1.0,
+"texture": SubResource("AtlasTexture_nxsqd")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_1xkhf")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_6aqoa")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_q8kvr")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_xffnr")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_co6mh")
+}],
+"loop": true,
+"name": &"attack",
+"speed": 7.0
+}, {
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_rj0qu")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_obaui")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_qrq0c")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_8o6i5")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_gsuhe")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_vuymp")
+}],
+"loop": true,
+"name": &"attack_down",
+"speed": 7.0
+}, {
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_njsyr")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_oq4jc")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_qbr2s")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_83kb1")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_p67q3")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_bgtnt")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_l5ak6")
+}],
+"loop": true,
+"name": &"attack_up",
+"speed": 7.0
+}, {
+"frames": [{
+"duration": 1.0,
 "texture": SubResource("AtlasTexture_j6du3")
 }, {
 "duration": 1.0,
@@ -215,17 +363,18 @@ animations = [{
 radius = 21.095
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_8usp2"]
-radius = 187.011
+radius = 65.123
 
-[node name="RigidBody" type="RigidBody2D"]
+[node name="RigidBody2D" type="RigidBody2D"]
+mass = 20.0
+gravity_scale = 0.0
 lock_rotation = true
 script = ExtResource("1_vw8bj")
 
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
 sprite_frames = SubResource("SpriteFrames_cfuow")
-animation = &"die"
+animation = &"attack"
 autoplay = "idle"
-frame_progress = 0.168846
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
 position = Vector2(-1, 9)
@@ -242,8 +391,19 @@ target_position = Vector2(0, 0)
 
 [node name="Line2D" type="Line2D" parent="."]
 
+[node name="RLNode2D" type="RLNode2D" parent="."]
+position = Vector2(-36.0588, 102.407)
+
 [node name="Timer" type="Timer" parent="."]
 
+[node name="AttackTimer" type="Timer" parent="."]
+
+[node name="CoolDownTimer" type="Timer" parent="."]
+
+[connection signal="body_entered" from="GoblinArea" to="." method="_on_goblin_area_body_entered"]
 [connection signal="body_entered" from="GoblinArea" to="." method="_on_detection_area_body_entered"]
+[connection signal="body_exited" from="GoblinArea" to="." method="_on_goblin_area_body_exited"]
 [connection signal="body_exited" from="GoblinArea" to="." method="_on_detection_area_body_exited"]
 [connection signal="timeout" from="Timer" to="." method="_on_timer_timeout"]
+[connection signal="timeout" from="AttackTimer" to="." method="_on_attack_timer_timeout"]
+[connection signal="timeout" from="CoolDownTimer" to="." method="_on_cool_down_timer_timeout"]

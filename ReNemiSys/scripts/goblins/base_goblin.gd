@@ -1,6 +1,6 @@
 extends RigidBody2D
 
-var health = 5
+var health = 3
 var patrol_speed = 200
 var direction = Vector2(1,0) #initial direction
 var prev_direction = Vector2(1,0)
@@ -10,34 +10,30 @@ var reverse_collision = true
 var player_in_range = false  # Tracks if the player is within the detection range
 var line_of_sight = 150
 var dead = false
+var is_attacking = false  # Track if the goblin is currently attacking
 
 @onready var detection_area = $GoblinArea
 @onready var raycast = $RayCast2D
 @onready var line2d = $Line2D  # Reference to Line2D for visualizing the ray
 @onready var animated_sprite = $AnimatedSprite2D  # Reference to the sprite for animations
 @onready var die_timer = $Timer
-@onready var gd_example = $GDExample
-
-
-func _ready():
-	add_to_group('enemy')
-
-	
-	gravity_scale = 0 # We dont need gravity yet
-	
-	# initialize the debug line
-	line2d.show()
-	line2d.add_point(raycast.position)
-	line2d.add_point(raycast.target_position)
-	#randomize()
+@onready var rl_node_2d = $RLNode2D
 	
 func take_damage():
+	if dead:  # If the enemy is dead, return false
+		return false
+	
+	print('ow')
 	health -= 1
 	if health <= 0:
+		remove_from_group('enemy')
 		die()
+	
+	return true  # Return true if the enemy is still alive
 		
 func die():
 	dead = true
+	linear_velocity = Vector2.ZERO
 	die_timer.start()
 	animated_sprite.play("die")
 
@@ -45,25 +41,22 @@ func _on_timer_timeout():
 	queue_free()
 
 func _physics_process(delta):
-	
-	if gd_example != null:
-		position = gd_example.position
-		print(gd_example.position)
-	
-	#position = gd_example.position
-	
 	if dead == false:
-		# If the player is detected in range, check line of sight
-		if player_in_range:
-			check_line_of_sight(delta)
-		else:
-			# Patrol if no player is in range or visible
-			#patrol(delta)
-			pass
+		if is_attacking == false:
+			if rl_node_2d != null:
+				linear_velocity  = rl_node_2d.position
+				animated_sprite.play("walking")
+				
+				if linear_velocity.x > 0:
+					animated_sprite.flip_h = false  # Moving right, no flip
+				elif linear_velocity.x < 0:
+					animated_sprite.flip_h = true   # Moving left, flip sprite
 
-		# Update ray target position if the enemy changes direction
-		update_direction()
-
+				# Update ray target position if the enemy changes direction
+				update_direction()
+		else:		
+			linear_velocity  = Vector2.ZERO
+		
 func update_direction():
 	# Check if the direction has changed
 	if direction != prev_direction:
@@ -76,21 +69,6 @@ func update_direction():
 		line2d.clear_points()
 		line2d.add_point(raycast.position)
 		line2d.add_point(raycast.target_position)
-
-# Function to patrol randomly
-func patrol(delta):
-	timer += delta
-	if timer >= change_dir:
-		# Change direction randomly every few seconds
-		direction = Vector2(randi_range(-1, 1), randi_range(-1, 1)).normalized()
-		timer = 0.0
-
-	# Move the enemy in the current direction
-	if direction != Vector2.ZERO:
-		move_with_collision(delta)
-	else:
-		# If not moving, play idle animation
-		animated_sprite.play("idle")
 
 # Function to handle movement and detect collisions
 func move_with_collision(delta):
@@ -114,16 +92,6 @@ func move_with_collision(delta):
 	elif direction.x > 0:
 		animated_sprite.flip_h = false  # Reset flip when moving right
 
-# Function to handle detection when an object enters the area
-func _on_detection_area_body_entered(body):
-	if body.is_in_group("players"):
-		player_in_range = true
-
-# Function to handle detection when an object exits the area
-func _on_detection_area_body_exited(body):
-	if body.is_in_group("players"):
-		player_in_range = false
-
 func check_line_of_sight(delta):
 	# Ensure direction is not zero to avoid invalid raycast direction
 	if direction == Vector2.ZERO:
@@ -140,7 +108,6 @@ func check_line_of_sight(delta):
 			pass
 	else:
 		# If no collision is detected, continue patrolling
-		patrol(delta)
 		pass
 
 # Example function to chase the player
@@ -148,3 +115,4 @@ func chase_player(player, delta):
 	# Move towards the player directly
 	direction = (player.position - position).normalized()
 	move_with_collision(delta)
+
