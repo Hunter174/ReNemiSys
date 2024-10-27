@@ -366,8 +366,9 @@ radius = 21.095
 radius = 65.123
 
 [node name="blue_goblin" type="RigidBody2D"]
-top_level = true
-z_index = 100
+z_index = 4
+z_as_relative = false
+y_sort_enabled = true
 mass = 20.0
 gravity_scale = 0.0
 lock_rotation = true
@@ -388,7 +389,9 @@ shape = SubResource("CircleShape2D_2nvyc")
 shape = SubResource("CircleShape2D_8usp2")
 
 [node name="RLNode2D" type="RLNode2D" parent="."]
+linear_velocity = Vector2(70.7107, -70.7107)
 position = Vector2(-104.589, 136.836)
+linear_velocity = Vector2(70.7107, -70.7107)
 
 [node name="Timer" type="Timer" parent="."]
 

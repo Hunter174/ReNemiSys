@@ -17,18 +17,22 @@ var chasing_player = false
 
 func _ready():
 	add_to_group('enemy')
+	
+	update_rl_enviornment()
+	
 	# initialize the debug line
 	los_visualization.show()
 	los_visualization.clear_points()
 	los_visualization.add_point(line_of_sight.position)
 	los_visualization.add_point(line_of_sight.target_position)
 	
+	
 func _physics_process(delta):
 	if dead == false:
 		if is_attacking == false:
 			if rl_node_2d != null:
-				if not chasing_player:
-					linear_velocity  = rl_node_2d.position
+				
+				update_rl_enviornment()
 				animated_sprite.play("walking")
 				
 				if linear_velocity.x > 0:
@@ -42,10 +46,16 @@ func _physics_process(delta):
 		else:		
 			linear_velocity  = Vector2.ZERO
 	
-func update_direction():
+func update_rl_enviornment():
+	#print(rl_node_2d.linear_velocity)
 	
-	if not chasing_player:
-		direction = linear_velocity.normalized()
+	# update RL settings every tick
+	linear_velocity = rl_node_2d.linear_velocity
+	rl_node_2d.health = float(self.health)
+	rl_node_2d.is_attacking = is_attacking
+	rl_node_2d.target_position = line_of_sight.target_position
+
+func update_direction():
 	
 	# Update the RayCast2D's target_position to match the new direction
 	line_of_sight.target_position = direction.normalized() * los_distance 

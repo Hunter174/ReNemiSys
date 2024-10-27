@@ -359,7 +359,10 @@ radius = 21.095
 radius = 65.123
 
 [node name="yellow_goblin" type="RigidBody2D"]
-z_index = 100
+z_index = 4
+z_as_relative = false
+y_sort_enabled = true
+mass = 20.0
 gravity_scale = 0.0
 lock_rotation = true
 script = ExtResource("1_8s5xv")
@@ -374,12 +377,16 @@ position = Vector2(-1, 9)
 shape = SubResource("CircleShape2D_smej8")
 
 [node name="GoblinArea" type="Area2D" parent="."]
+z_as_relative = false
+y_sort_enabled = true
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="GoblinArea"]
 shape = SubResource("CircleShape2D_e5ych")
 
 [node name="RLNode2D" type="RLNode2D" parent="."]
+linear_velocity = Vector2(70.7107, -70.7107)
 position = Vector2(-113.501, 141.107)
+linear_velocity = Vector2(70.7107, -70.7107)
 
 [node name="Timer" type="Timer" parent="."]
 
@@ -392,3 +399,9 @@ rotation = -1.5708
 scale = Vector2(4, 4)
 
 [node name="LineOfSightVisualization" type="Line2D" parent="."]
+
+[connection signal="body_entered" from="GoblinArea" to="." method="_on_goblin_area_body_entered"]
+[connection signal="body_exited" from="GoblinArea" to="." method="_on_goblin_area_body_exited"]
+[connection signal="timeout" from="Timer" to="." method="_on_timer_timeout"]
+[connection signal="timeout" from="AttackTimer" to="." method="_on_attack_timer_timeout"]
+[connection signal="timeout" from="CoolDownTimer" to="." method="_on_cool_down_timer_timeout"]
