@@ -1,6 +1,6 @@
 [gd_scene load_steps=2 format=3 uid="uid://bv3jcxk6c13g2"]
 
-[ext_resource type="PackedScene" uid="uid://cw8s1djot7eby" path="res://scenes/red_goblin.tscn" id="1_2id5q"]
+[ext_resource type="PackedScene" uid="uid://cw8s1djot7eby" path="res://scenes/goblins/classes/torch/red_goblin.tscn" id="1_2id5q"]
 
 [node name="RedFaction" type="Node2D"]
 

@@ -1,0 +1,38 @@
+[gd_resource type="Theme" load_steps=12 format=3 uid="uid://b5dtku2rb15gt"]
+
+[ext_resource type="FontFile" uid="uid://bu26n4umquou1" path="res://fonts/Crang.ttf" id="1_bostk"]
+[ext_resource type="Texture2D" uid="uid://ds72e2qer52ha" path="res://assets/TinySwords/UI/Buttons/Button_Blue_3Slides.png" id="1_dugxx"]
+[ext_resource type="Texture2D" uid="uid://xgqelaaey3nl" path="res://assets/TinySwords/UI/Buttons/Button_Blue_3Slides_Pressed.png" id="1_ofpg5"]
+[ext_resource type="Texture2D" uid="uid://b83ctmmp5c1to" path="res://assets/TinySwords/UI/Banners/Carved_9Slides.png" id="4_qvybx"]
+
+[sub_resource type="StyleBoxTexture" id="StyleBoxTexture_eevys"]
+texture = ExtResource("1_ofpg5")
+
+[sub_resource type="StyleBoxTexture" id="StyleBoxTexture_umn3x"]
+
+[sub_resource type="StyleBoxTexture" id="StyleBoxTexture_rswsd"]
+texture = ExtResource("1_ofpg5")
+
+[sub_resource type="StyleBoxTexture" id="StyleBoxTexture_fn6ic"]
+texture = ExtResource("1_dugxx")
+
+[sub_resource type="StyleBoxTexture" id="StyleBoxTexture_oxwgv"]
+texture = ExtResource("1_ofpg5")
+
+[sub_resource type="StyleBoxTexture" id="StyleBoxTexture_mspsd"]
+texture = ExtResource("4_qvybx")
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_md15l"]
+bg_color = Color(0, 0.882353, 0.333333, 1)
+
+[resource]
+default_font = ExtResource("1_bostk")
+default_font_size = 25
+Button/fonts/font = ExtResource("1_bostk")
+Button/styles/disabled = SubResource("StyleBoxTexture_eevys")
+Button/styles/focus = SubResource("StyleBoxTexture_umn3x")
+Button/styles/hover = SubResource("StyleBoxTexture_rswsd")
+Button/styles/normal = SubResource("StyleBoxTexture_fn6ic")
+Button/styles/pressed = SubResource("StyleBoxTexture_oxwgv")
+Panel/styles/panel = SubResource("StyleBoxTexture_mspsd")
+ProgressBar/styles/fill = SubResource("StyleBoxFlat_md15l")

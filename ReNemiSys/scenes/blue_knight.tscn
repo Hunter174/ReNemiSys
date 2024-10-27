@@ -1,7 +1,8 @@
-[gd_scene load_steps=36 format=3 uid="uid://br3elxnrfpr0n"]
+[gd_scene load_steps=37 format=3 uid="uid://br3elxnrfpr0n"]
 
-[ext_resource type="Script" path="res://scripts/player.gd" id="1_43xcg"]
+[ext_resource type="Script" path="res://scripts/core/player.gd" id="1_fi6wr"]
 [ext_resource type="Texture2D" uid="uid://pm3c6si0y3lg" path="res://assets/TinySwords/Factions/Knights/Troops/Warrior/Blue/Warrior_Blue.png" id="1_kunpk"]
+[ext_resource type="Theme" uid="uid://b5dtku2rb15gt" path="res://themes/default_theme.tres" id="3_yx08p"]
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_y4qtl"]
 atlas = ExtResource("1_kunpk")
@@ -248,7 +249,7 @@ radius = 23.0217
 size = Vector2(80, 52)
 
 [node name="CharacterBody2D" type="CharacterBody2D"]
-script = ExtResource("1_43xcg")
+script = ExtResource("1_fi6wr")
 
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
 sprite_frames = SubResource("SpriteFrames_6v232")
@@ -267,12 +268,15 @@ wait_time = 0.5
 one_shot = true
 
 [node name="AttackZone" type="Area2D" parent="."]
+visible = false
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="AttackZone"]
+visible = false
 scale = Vector2(2, 2)
 shape = SubResource("RectangleShape2D_ergki")
 
 [node name="ColorRect" type="ColorRect" parent="AttackZone"]
+visible = false
 offset_left = -40.0
 offset_top = -26.0
 offset_right = 41.0
@@ -280,6 +284,14 @@ offset_bottom = 25.0
 
 [node name="AttackTimer" type="Timer" parent="AttackZone/ColorRect"]
 one_shot = true
+
+[node name="HealthBar" type="ProgressBar" parent="."]
+offset_left = -50.0
+offset_top = -100.0
+offset_right = 50.0
+offset_bottom = -75.0
+theme = ExtResource("3_yx08p")
+show_percentage = false
 
 [connection signal="timeout" from="Timer" to="." method="_on_attack_timeout"]
 [connection signal="body_entered" from="AttackZone" to="." method="_on_goblin_area_body_entered"]

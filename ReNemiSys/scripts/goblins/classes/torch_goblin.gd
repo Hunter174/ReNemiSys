@@ -1,79 +1,113 @@
-extends "res://scripts/goblins/base_goblin.gd"
+# torch_goblin.gd
+extends "res://scripts/goblins/goblin_base.gd"
+
 @onready var goblin_area = $GoblinArea
 @onready var attack_timer = $AttackTimer 
-@onready var cool_down_timer = $CoolDownTimer  # Cooldown timer for managing attack cooldowns
+@onready var cool_down_timer = $CoolDownTimer
+@onready var line_of_sight = $LineOfSight
+@onready var los_visualization = $LineOfSightVisualization
 
+
+# Additional attributes
 var promoted = false  # Track if this goblin has been promoted
 var attack_cooldown = 2.0  # Cooldown time in seconds
 var can_attack = true  # Lock for attack readiness
+var los_distance = 150
+var chasing_player = false
 
 func _ready():
 	add_to_group('enemy')
-
-	print("Goblin scout ready with health: ", health)
-	
 	# initialize the debug line
-	line2d.show()
-	line2d.add_point(raycast.position)
-	line2d.add_point(raycast.target_position)
+	los_visualization.show()
+	los_visualization.clear_points()
+	los_visualization.add_point(line_of_sight.position)
+	los_visualization.add_point(line_of_sight.target_position)
+	
+func _physics_process(delta):
+	if dead == false:
+		if is_attacking == false:
+			if rl_node_2d != null:
+				if not chasing_player:
+					linear_velocity  = rl_node_2d.position
+				animated_sprite.play("walking")
+				
+				if linear_velocity.x > 0:
+					animated_sprite.flip_h = false  # Moving right, no flip
+				elif linear_velocity.x < 0:
+					animated_sprite.flip_h = true   # Moving left, flip sprite
 
-func promote():
-	if not promoted:
-		# Add specific promotion behavior for this subclass
-		health += 10  # Further increase health for scout goblins
-		promoted = true  # Mark this goblin as promoted
-		print("Scout goblin promoted: Health: ", health)
+				# Update ray target position if the enemy changes direction
+				update_direction()
+				check_line_of_sight(delta)
+		else:		
+			linear_velocity  = Vector2.ZERO
+	
+func update_direction():
+	
+	if not chasing_player:
+		direction = linear_velocity.normalized()
+	
+	# Update the RayCast2D's target_position to match the new direction
+	line_of_sight.target_position = direction.normalized() * los_distance 
 
-# Function to handle player entering the GoblinArea
+	# Update Line2D to reflect the new ray target
+	los_visualization.clear_points()
+	los_visualization.add_point(line_of_sight.position)
+	los_visualization.add_point(line_of_sight.target_position)
+
+# Handle interactions with a player entering and exiting GoblinArea
 func _on_goblin_area_body_entered(body):
 	if body.is_in_group("player") and can_attack:
-		player_in_range = body  # Store the player reference
-		attack_player()  # Initiate attack if the player is in range
-
-# Function to handle player exiting the GoblinArea
+		player_in_range = body  
+		attack_player() 
+		
 func _on_goblin_area_body_exited(body):
 	if body.is_in_group("player"):
-		player_in_range = null  # Reset player reference
-		is_attacking = false  # Stop attacking if player leaves the range
+		player_in_range = null  
+		is_attacking = false
 
-# Function to attack the player
+# Attack player logic
 func attack_player():
 	if player_in_range and can_attack:
-		print('Attacking')
-		is_attacking = true  # Mark as attacking to avoid multiple triggers
-		can_attack = false  # Lock further attacks until cooldown
+		is_attacking = true  
+		can_attack = false 
 
 		# Calculate direction relative to the goblin
 		var direction = (player_in_range.global_position - global_position).normalized()
-		print("Direction to player: ", direction)
-
-		# Attack direction checka
 		if abs(direction.x) > abs(direction.y):
-			# Horizontal attack (left or right)
-			if direction.x < 0:
-				animated_sprite.flip_h = true  # Attack left
-			else:
-				animated_sprite.flip_h = false  # Attack right
+			animated_sprite.flip_h = direction.x < 0
 			animated_sprite.play("attack")  # Attack up
 		else:
 			# Vertical attack (up or down)
-			if direction.y < 0:
-				animated_sprite.play("attack_up")  # Attack up
-			else:
-				animated_sprite.play("attack_down")  # Attack down
+			animated_sprite.play("attack_up" if direction.y < 0 else "attack_down")
 
-		# Start attack timer
+		# Start timers
 		attack_timer.start()
-		player_in_range.take_damage()
-
-		# Start cooldown after attack completes
 		cool_down_timer.start()
-
+	
 # Function called when the attack animation finishes
 func _on_attack_timer_timeout():
-	is_attacking = false  # End attack state
+	if player_in_range: 
+		var player_defeated = player_in_range.take_damage()
+		if player_defeated:
+			self.gain_exp(50)
+			if nemesis:
+				self.promote()
+				nemesis = null
+	is_attacking = false
 
 # Function called when the cooldown timer finishes
 func _on_cool_down_timer_timeout():
-	can_attack = true  # Unlock attack after cooldown ends
-	print("Cooldown finished, goblin can attack again.")
+	can_attack = true 
+
+# Detects player in line of sight and initiates chase if in range
+func check_line_of_sight(delta):
+	if line_of_sight.is_colliding():
+		var collider = line_of_sight.get_collider()
+		if collider.is_in_group("player"):
+			chase_player(collider, delta)
+
+func chase_player(player, delta):
+	direction = (player.position - position).normalized()
+	chasing_player = true
+	move_with_collision(delta)

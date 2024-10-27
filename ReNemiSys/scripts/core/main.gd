@@ -5,15 +5,6 @@ extends Node2D
 func _ready():
 	pass # Replace with function body.
 
-
 # Called every frame. 'delta' is the elapsed time since the previous frame.
 func _process(delta):
 	pass
-
-
-func get_members():
-	var members = []
-	for member in get_children():
-		members.append(member)
-		
-	return members
