@@ -1,39 +1,53 @@
 # ReNemiSys
 
-## Introduction
+## Overview
 
-**ReNemiSys** is an innovative game project that blends reinforcement learning (RL) and a nemesis system inspired by the AI architecture seen in *Shadow of Mordor* and the looping narrative structure from the anime *Re:Zero*. The core idea is to create a dynamic, evolving hierarchy of NPC enemies who learn and adapt to the player’s strategies, growing stronger after each encounter. Through the use of RL, the NPCs will become increasingly intelligent and challenging, remembering past interactions and evolving both in terms of skill and behavior.
+*"Unlike an Orc Boss, goblin bosses have to rely on their cunning rather than their strength."* – Ravening Hordes (TOW), Goblin Bosses
 
-This project is focused on building robust game logic, leveraging cutting-edge AI to ensure that no two encounters are the same. The nemesis system will ensure NPCs are not static but instead adapt, evolve, and seek revenge in future encounters, providing an ongoing and evolving challenge for the player.
+If you're going to be cunning you need to learn from your mistakes. **ReNemiSys** is my personal passion project that embodies this idea.
+Inspired by the adaptive AI architecture of *Shadow of Mordor* and the looping narrative of *Re:Zero*, this project aims to create NPCs 
+that learn and evolve with each encounter. In this game, not only the player but also the enemies evolve and grow more intelligent after each encounter. 
+The result is a game where every battle is unique, ensuring players face progressively challenging and adaptive foes.
 
-## Project Goals
-
-The goals of **ReNemiSys** include:
-1. **Dynamic Nemesis System**: Implement a nemesis hierarchy where NPCs evolve based on interactions with the player. NPCs will move up in rank, develop new strengths, and remember past encounters.
-2. **Reinforcement Learning (RL)-Driven NPCs**: Use RL algorithms to drive the decision-making and combat behaviors of nemesis characters. Each NPC will learn and adapt to the player's strategies, becoming more formidable over time.
-3. **Looping Progression Inspired by *Re:Zero***: Introduce a game loop mechanic where, after key events (like player death or major defeats), the game resets. NPCs and the nemesis hierarchy will retain memories of past encounters, allowing them to evolve and adapt with each loop.
-4. **Adaptive Combat System**: Develop an RL-based combat system where NPCs learn from each battle with the player, modifying their tactics, moves, and approaches based on prior encounters.
-5. **Hierarchy and Faction Management**: Build a hierarchical structure where NPCs belong to factions and ranks, with promotions and demotions occurring based on in-game events. The hierarchy dynamically reshuffles based on player interactions.
-6. **Scalable AI and Learning**: Ensure that the AI and learning processes are scalable, allowing for increasingly complex and strategic behaviors in the nemesis characters as they evolve through multiple loops.
+<p align="center">
+  <img src="EnemyTracking.png" alt="Enemy Tracking" width="500">
+</p>
 
 ## Key Features
-- **Evolving Nemesis System**: NPCs will not only get stronger, but they will develop new behaviors and traits over time, making them more dangerous with every encounter.
-- **Memory of Past Encounters**: NPCs will remember how the player defeated them and use that information to adapt their strategies in future battles.
-- **Reinforcement Learning for Combat**: Using RL, the combat AI will learn from each interaction, ensuring that NPCs dynamically adjust their combat style.
-- **Procedural Hierarchy**: As the player defeats enemies, the NPCs evolve, promoting within the nemesis hierarchy, which changes the power dynamics of the world.
+- **Dynamic Nemesis System**: NPCs adapt and evolve, growing stronger after each interaction and remembering how they were defeated.
+- **Reinforcement Learning for AI**: NPC combat behavior driven by Deep Q Learning algorithms, enabling NPCs to learn and adjust tactics dynamically.
+- **Memory and Adaptation**: Persistent memory of player encounters that NPCs use to enhance future strategies.
+- **Hierarchical Structure**: NPCs belong to factions and ranks, moving up in a procedural hierarchy that shifts based on gameplay outcomes.
 
-## Tech Stack
-- **Godot Engine**: Lightweight game engine to focus on core game logic and prototyping.
-- **Python (PyTorch, Stable-Baselines3)**: For reinforcement learning, using state-of-the-art libraries to train NPCs.
-- **SQLite/JSON**: For storing NPC data and tracking their evolution and hierarchy.
-- **Flask/FastAPI**: Optional backend to serve RL models and nemesis state if separated from the game logic.
+<p align="center">
+  <img src="Game%20System%20Diagram%20WIP.png" width="800" height="480">
+</p>
+## Project Goals
+1. **Adaptive NPC Behavior**: Implement a scalable AI framework where NPCs evolve their behaviors over time.
+2. **Looping Game Mechanics**: Inspired by *Re:Zero*, the game resets after major events while NPCs retain knowledge of past encounters similar to a RougeLike game.
+3. **Faction and Rank Management**: Introduce a system where NPCs are promoted or demoted, impacting power dynamics.
+4. **Combat AI**: Develop an RL-based combat system where NPCs learn from battles and adapt accordingly.
 
-## Development Roadmap
-1. **Phase 1**: Prototype the core game loop and nemesis evolution system.
-2. **Phase 2**: Integrate reinforcement learning into NPC combat behavior.
-3. **Phase 3**: Build out the hierarchy and faction management system to handle nemesis promotions and demotions.
-4. **Phase 4**: Test, balance, and refine AI behaviors to ensure fair and challenging gameplay.
-5. **Phase 5**: Add additional features, polish, and expand the game world.
+## Tools and Frameworks
+- **Godot Engine**: Powers the core game mechanics and logic. Also offers the core physics engine and environment for the agents to learn in.
+- **C++ Node Extensions**: Enhances game engine capabilities for optimized performance.
+- **Python (PyTorch, Scons)**: Handles C++ binding to the Godot Node structure.
+- **SQLite/JSON**: Manages persistent data storage for NPC attributes and hierarchy.
 
-## How to Get Started
-- TBD
+
+## Development Phases
+- [x] **Prototype Core Loop**: Build the game loop and basic nemesis evolution system.
+    - Implement basic enemy AI.
+    - Create initial player controls and interactions.
+- [ ] **Integrate RL for Combat**: Implement RL-driven behavior for more intelligent NPCs.
+    - Research appropriate RL algorithms for NPCs.
+    - Implement training scripts and test integration.
+- [ ] **Faction Management**: Develop the procedural hierarchy for promotions/demotions.
+    - Design faction structure and promotion rules.
+    - Implement logic for inter-faction interactions.
+- [ ] **AI Refinement**: Balance and fine-tune NPC behaviors to ensure engaging gameplay.
+    - Optimize RL parameters for improved NPC learning.
+    - Conduct playtesting for balance adjustments.
+- [ ] **Polish and Expand**: Add new features, improve visuals, and enhance overall gameplay.
+    - Integrate advanced graphics and animations.
+    - Add sound effects and background music.

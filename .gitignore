@@ -62,3 +62,4 @@ godot-cpp
 *.json
 *.o
 *.dll
+*.ttf
