@@ -3,6 +3,9 @@
 
 #include <godot_cpp/classes/rigid_body2d.hpp>
 #include <godot_cpp/variant/vector2.hpp>  // Include for Vector2
+#include "neural_network.h"  // Include for NeuralNetwork header
+#include <vector>
+#include <random>
 
 namespace godot {
 
@@ -24,11 +27,23 @@ namespace godot {
         Vector2 last_action = Vector2(0, 0); // Last chosen action for diversity reward
         double last_reward = 0.0;          // Last calculated reward for diversity tracking
 
+        NeuralNetwork* q_network;          // Q-network for action selection
+        NeuralNetwork* target_network;     // Target network for stable Q-learning
+
+        std::default_random_engine generator;
+
+        // Helper methods
+        Vector2 choose_action(const Eigen::VectorXd& current_state);
+        void train_network();
+        double calculate_movement_reward(Vector2 new_position);
+        void update_target_network();
+
+        // Conversion helpers
+        Eigen::VectorXd vector2_to_eigen(const Vector2& vec);
+        Vector2 eigen_to_vector2(const Eigen::VectorXd& vec);
+
     protected:
         static void _bind_methods();       // Used to bind methods and properties for Godot
-
-        // Function to calculate reward based on movement
-        double calculate_movement_reward(Vector2 new_position);
 
     public:
         RLNode2D();

@@ -4,6 +4,9 @@ import sys
 
 env = SConscript("godot-cpp/SConstruct")
 
+# Append the include path for the 'src' directory and Eigen library
+env.Append(CPPPATH=["src/", "C:/libs/eigen-3.4.0"])
+
 # For reference:
 # - CCFLAGS are compilation flags shared between C and C++
 # - CFLAGS are for C-specific compilation flags
@@ -12,8 +15,6 @@ env = SConscript("godot-cpp/SConstruct")
 # - CPPDEFINES are for pre-processor defines
 # - LINKFLAGS are for linking flags
 
-# tweak this if you want to use different folders, or more folders, to store your source code in.
-env.Append(CPPPATH=["src/"])
 sources = Glob("src/*.cpp")
 
 if env["platform"] == "macos":
