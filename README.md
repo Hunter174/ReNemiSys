@@ -22,6 +22,7 @@ The result is a game where every battle is unique, ensuring players face progres
 <p align="center">
   <img src="Game%20System%20Diagram%20WIP.png" width="800" height="480">
 </p>
+
 ## Project Goals
 1. **Adaptive NPC Behavior**: Implement a scalable AI framework where NPCs evolve their behaviors over time.
 2. **Looping Game Mechanics**: Inspired by *Re:Zero*, the game resets after major events while NPCs retain knowledge of past encounters similar to a RougeLike game.
