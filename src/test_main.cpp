@@ -1,5 +1,4 @@
 #include <vector>
-#include <tuple>
 #include <iostream>
 #include "neural_network.h"
 
@@ -13,9 +12,9 @@ int main() {
     Eigen::VectorXd next_state(4);
     next_state << 0.2, -0.1, 0.4, 0.5;
 
-    // Create a mini-batch with one training example
-    std::vector<std::tuple<Eigen::VectorXd, int, double, Eigen::VectorXd>> mini_batch;
-    mini_batch.push_back(std::make_tuple(input, 0, 1.0, next_state));
+    // Create a mini-batch with one training example using the Experience struct
+    std::vector<NeuralNetwork::Experience> mini_batch;
+    mini_batch.push_back({input, next_state, 1.0, 0});  // reward = 1.0, action = 0
 
     // Train the network
     network.train(mini_batch, 0.01, 0.99);

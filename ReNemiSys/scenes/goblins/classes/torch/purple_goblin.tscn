@@ -382,9 +382,12 @@ shape = SubResource("CircleShape2D_smej8")
 shape = SubResource("CircleShape2D_e5ych")
 
 [node name="RLNode2D" type="RLNode2D" parent="."]
-linear_velocity = Vector2(-100, 0)
+health = -5.72778e+250
+is_attacking = true
+linear_velocity = Vector2(70.7107, 70.7107)
+reward = nan
 position = Vector2(522.54, 0)
-linear_velocity = Vector2(-100, 0)
+linear_velocity = Vector2(70.7107, 70.7107)
 
 [node name="Timer" type="Timer" parent="."]
 

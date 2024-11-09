@@ -2,21 +2,31 @@
 #include <cmath>
 #include <random>
 #include <iostream>
+#include <algorithm>
 
+using namespace std;
+using Eigen::MatrixXd;
+using Eigen::VectorXd;
 
-NeuralNetwork::NeuralNetwork(const std::vector<int>& layer_sizes) {
+// Clipping constants to prevent values from exploding
+const double GRADIENT_CLIP_VALUE = 1.0;
+const double TARGET_CLIP_MIN = -10.0;
+const double TARGET_CLIP_MAX = 10.0;
+
+NeuralNetwork::NeuralNetwork(const vector<int>& layer_sizes) {
     for (size_t i = 0; i < layer_sizes.size() - 1; ++i) {
-        weights.push_back(random_init(layer_sizes[i + 1], layer_sizes[i]));
-        biases.push_back(Eigen::VectorXd::Zero(layer_sizes[i + 1]));
+        weights.push_back(init_weights(layer_sizes[i + 1], layer_sizes[i]));
+        biases.push_back(VectorXd::Zero(layer_sizes[i + 1]));
     }
 }
 
-Eigen::MatrixXd NeuralNetwork::random_init(int rows, int cols) {
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_real_distribution<> dis(-0.1, 0.1);
+// Helper function to initialize weights with random values
+MatrixXd NeuralNetwork::init_weights(int rows, int cols) {
+    random_device rd;
+    mt19937 gen(rd());
+    uniform_real_distribution<> dis(-0.1, 0.1);  // Small range to prevent large initial values
 
-    Eigen::MatrixXd mat(rows, cols);
+    MatrixXd mat(rows, cols);
     for (int i = 0; i < rows; ++i)
         for (int j = 0; j < cols; ++j)
             mat(i, j) = dis(gen);
@@ -24,89 +34,96 @@ Eigen::MatrixXd NeuralNetwork::random_init(int rows, int cols) {
     return mat;
 }
 
-Eigen::VectorXd NeuralNetwork::relu(const Eigen::VectorXd& x) {
+// Activation functions
+VectorXd NeuralNetwork::relu(const VectorXd& x) {
     return x.cwiseMax(0);
 }
 
-Eigen::VectorXd NeuralNetwork::softmax(const Eigen::VectorXd& x) {
-    Eigen::VectorXd exp_x = x.array().exp();
+VectorXd NeuralNetwork::softmax(const VectorXd& x) {
+    VectorXd exp_x = (x.array() - x.maxCoeff()).exp();
     return exp_x / exp_x.sum();
 }
 
-Eigen::VectorXd NeuralNetwork::forward(const Eigen::VectorXd& input) {
-    Eigen::VectorXd activation = input;
+// Forward pass through the network
+VectorXd NeuralNetwork::forward(const VectorXd& x) {
+    VectorXd activation = x;
     for (size_t i = 0; i < weights.size() - 1; ++i) {
-        std::cout << "Layer " << i << ": weights size = " << weights[i].rows() << "x" << weights[i].cols()
-                  << ", activation size = " << activation.size() << std::endl;
-
-        activation = relu(weights[i] * activation + biases[i]);
+        activation = relu(weights[i] * activation + biases[i]).cwiseMin(10.0).cwiseMax(-10.0);  // Clipping activations
     }
-    std::cout << "Final layer: weights size = " << weights.back().rows() << "x" << weights.back().cols()
-              << ", activation size = " << activation.size() << std::endl;
 
-    activation = weights.back() * activation + biases.back(); // No activation on the final layer
-    return activation;
+    activation = weights.back() * activation + biases.back();
+    return softmax(activation);
 }
 
-void NeuralNetwork::backpropagate(const Eigen::VectorXd& input, const Eigen::VectorXd& target, double learning_rate) {
-    // Forward pass
-    std::vector<Eigen::VectorXd> activations;
-    std::vector<Eigen::VectorXd> zs;
-    activations.push_back(input);
-    Eigen::VectorXd activation = input;
+// Backpropagation for a single sample
+void NeuralNetwork::backpropagate(const VectorXd& input, const VectorXd& target, double learning_rate) {
+    vector<VectorXd> activations;
+    vector<VectorXd> zs;
 
+    activations.push_back(input);
+    VectorXd activation = input;
+
+    // Forward pass to store activations and pre-activation (z) values
     for (size_t i = 0; i < weights.size(); ++i) {
-        Eigen::VectorXd z = weights[i] * activation + biases[i];
+        VectorXd z = weights[i] * activation + biases[i];
         zs.push_back(z);
-        activation = relu(z);
+        activation = (i < weights.size() - 1) ? relu(z) : softmax(z);
+        activation = activation.cwiseMin(10.0).cwiseMax(-10.0);  // Clipping activations
         activations.push_back(activation);
     }
 
-    // Backward pass
-    Eigen::VectorXd delta = activations.back() - target; // Output error
+    VectorXd delta = (activations.back() - target).cwiseMin(1.0).cwiseMax(-1.0);  // Cap delta between -1 and 1
 
+    // Backpropagation through layers
     for (int i = weights.size() - 1; i >= 0; --i) {
-        Eigen::MatrixXd grad_w = delta * activations[i].transpose();
-        Eigen::VectorXd grad_b = delta;
+        MatrixXd grad_w = delta * activations[i].transpose();
+        VectorXd grad_b = delta;
 
-        // Update weights and biases
+        // Gradient clipping
+        grad_w = grad_w.unaryExpr([](double v) { return std::clamp(v, -GRADIENT_CLIP_VALUE, GRADIENT_CLIP_VALUE); });
+        grad_b = grad_b.unaryExpr([](double v) { return std::clamp(v, -GRADIENT_CLIP_VALUE, GRADIENT_CLIP_VALUE); });
+
+        // Update weights and biases with clipped gradients
         weights[i] -= learning_rate * grad_w;
         biases[i] -= learning_rate * grad_b;
 
+        // Calculate delta for the next layer if not the first layer
         if (i > 0) {
             delta = (weights[i].transpose() * delta).cwiseProduct(zs[i - 1].unaryExpr([](double elem) { return elem > 0 ? 1.0 : 0.0; }));
         }
     }
 }
 
-void NeuralNetwork::train(std::vector<std::tuple<Eigen::VectorXd, int, double, Eigen::VectorXd>>& mini_batch, double learning_rate, double gamma) {
+// Train the network with a mini-batch of experiences based on Bellman's equation
+void NeuralNetwork::train(vector<Experience>& mini_batch, double learning_rate, double gamma) {
     for (const auto& experience : mini_batch) {
-        Eigen::VectorXd state, next_state;
-        int action;
-        double reward;
-        std::tie(state, action, reward, next_state) = experience;
+        VectorXd state = experience.current_state;
+        VectorXd next_state = experience.next_state;
+        int action = experience.action;
+        double reward = experience.reward;
 
-        std::cout << "State size: " << state.size() << ", Next state size: " << next_state.size() << std::endl;
-        std::cout << "Action index: " << action << std::endl;
-
-        Eigen::VectorXd target = forward(state);
-        std::cout << "Target size before update: " << target.size() << std::endl;
+        VectorXd target = forward(state);
 
         double max_next_q = forward(next_state).maxCoeff();
-        target[action] = reward + gamma * max_next_q;
+        double target_value = std::clamp(reward + gamma * max_next_q, TARGET_CLIP_MIN, TARGET_CLIP_MAX);  // Target clipping
+        target[action] = target_value;
 
         backpropagate(state, target, learning_rate);
     }
 }
 
 void NeuralNetwork::copy_weights_from(const NeuralNetwork& other) {
+    if (weights.size() != other.weights.size() || biases.size() != other.biases.size()) {
+        cerr << "Error: Network structures do not match. Cannot copy weights." << endl;
+        return;
+    }
     for (size_t i = 0; i < weights.size(); ++i) {
         weights[i] = other.weights[i];
         biases[i] = other.biases[i];
     }
 }
 
-// Define get_weights() method
-const std::vector<Eigen::MatrixXd>& NeuralNetwork::get_weights() const {
+// Get the weights of the network
+const vector<MatrixXd>& NeuralNetwork::get_weights() const {
     return weights;
 }

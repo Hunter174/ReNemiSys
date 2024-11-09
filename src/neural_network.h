@@ -4,35 +4,43 @@
 #include <vector>
 #include <Eigen/Dense>
 
+using namespace std;
+using Eigen::MatrixXd;
+using Eigen::VectorXd;
+
 class NeuralNetwork {
 private:
-    std::vector<Eigen::MatrixXd> weights; // Vector of weight matrices
-    std::vector<Eigen::VectorXd> biases;  // Vector of bias vectors
+    vector<MatrixXd> weights;
+    vector<MatrixXd> biases;
+    const double clip_value = 1.0;
 
     // Activation functions
-    Eigen::VectorXd relu(const Eigen::VectorXd& x);
-    Eigen::VectorXd softmax(const Eigen::VectorXd& x);
+    VectorXd relu(const VectorXd& x);
+    VectorXd softmax(const VectorXd& x);
 
-    // Random initialization helper
-    Eigen::MatrixXd random_init(int rows, int cols);
+    MatrixXd init_weights(int rows, int cols);
 
 public:
-    NeuralNetwork(const std::vector<int>& layer_sizes);
+    NeuralNetwork(const vector<int>& layer_sizes);
 
-    // Forward pass
-    Eigen::VectorXd forward(const Eigen::VectorXd& input);
+    // Struct to represent a single experience in the environment
+    struct Experience {
+        VectorXd current_state;
+        VectorXd next_state;
+        double reward;
+        int action;
+    };
 
-    // Based on the Q Learning update rule
-    void train(std::vector<std::tuple<Eigen::VectorXd, int, double, Eigen::VectorXd>>& mini_batch, double learning_rate, double gamma);
+    VectorXd forward(const VectorXd& x);
 
-    // Backpropagation method for training
-    void backpropagate(const Eigen::VectorXd& input, const Eigen::VectorXd& target, double learning_rate);
+    // Train function based on Bellman's equation
+    void train(vector<Experience>& mini_batch, double learning_rate, double gamma);
 
-    // Utility to copy weights from another network
+    void backpropagate(const VectorXd& input, const VectorXd& target, double learning_rate);
+
+    // Get the weights
+    const vector<MatrixXd>& get_weights() const;
     void copy_weights_from(const NeuralNetwork& other);
-
-    // Method to access weights
-    const std::vector<Eigen::MatrixXd>& get_weights() const; // Declare get_weights() here
 };
 
 #endif // NEURAL_NETWORK_H

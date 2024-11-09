@@ -13,7 +13,7 @@ var load_state = null
 var initial_members = {
 	"Blue": ["BlueGoblin1", "BlueGoblin2", "BlueGoblin3"],
 	"Purple": ["PurpleGoblin1", "PurpleGoblin2"],
-	"Red": ["RedGoblin1", "RedGoblin2", "RedGoblin3"],
+	"Red": ["RedGoblin1"],
 	"Yellow": ["YellowGoblin1"]
 }
 
