@@ -4,6 +4,7 @@
 #include <cmath>
 #include <random>
 #include <limits>
+#include <tuple>
 
 using namespace godot;
 using namespace std;
@@ -11,7 +12,7 @@ using Eigen::MatrixXd;
 using Eigen::VectorXd;
 
 // Set desired frame intervals for training and experience storage
-const int UPDATE_INTERVAL_FRAMES = 30; // Update every 30 frames (adjust as needed)
+const int UPDATE_INTERVAL_FRAMES = 10; // Update every 30 frames (adjust as needed)
 
 const double MAX_REWARD = 1000.0;
 const double MIN_REWARD = -1000.0;
@@ -87,42 +88,54 @@ void RLNode2D::_physics_process(double delta) {
     state_vector(2) = health;
     state_vector(3) = is_attacking ? 1.0 : 0.0;
 
-    // Update q_values in each frame (or in intervals if necessary)
-    update_q_values(state_vector);
-
-
-    // Proceed with the rest of the physics process logic
+    // Check if the update interval has been reached
     if (frame_count % UPDATE_INTERVAL_FRAMES == 0) {
-        Vector2 chosen_action = choose_action(state_vector);
-        Vector2 new_position = get_position() + chosen_action * speed * delta;
+        Vector2 previous_position = get_position();
 
-        double movement_reward = calculate_movement_reward(new_position);
-        reward += movement_reward;
+        // Choose the action based on the current exploration rate
+        auto [chosen_action, action_index] = choose_action(state_vector);
+
+        Vector2 new_position = previous_position + chosen_action * speed * delta;
+        double movement_reward = calculate_movement_reward(previous_position, new_position);
+
+        // Check if reward has improved or plateaued
+        if (movement_reward > 0) {
+            reward += movement_reward;
+            plateau_counter = 0;  // Reset plateau counter if reward improves
+        } else {
+            plateau_counter++;  // Increment plateau counter if reward stagnates
+        }
+
+        // Temporarily boost exploration if plateau persists
+        if (plateau_counter >= PLATEAU_THRESHOLD) {
+            epsilon = max(epsilon, 0.5);  // Increase epsilon for exploration
+        } else {
+            epsilon = max(min_epsilon, epsilon * epsilon_decay); // Normal decay of epsilon
+        }
+
         reward = clamp(reward, MIN_REWARD, MAX_REWARD);
-
         set_linear_velocity(chosen_action * speed);
 
+        // Update the state and store experience
         VectorXd next_state = state_vector;
-        next_state(0) = get_position().x;
-        next_state(1) = get_position().y;
-        store_experience(state_vector, 0 /*example action*/, reward, next_state);
+        next_state(0) = new_position.x;
+        next_state(1) = new_position.y;
+        store_experience(state_vector, action_index, reward, next_state);
 
         train_network();
-
-        epsilon = max(min_epsilon, epsilon * epsilon_decay);
     }
 
-    if (frame_count >= std::numeric_limits<int>::max() - 1) {
+    // Reset frame counter if it reaches its max value
+    if (frame_count >= numeric_limits<int>::max() - 1) {
         frame_count = 0;
     }
 }
-
 
 void RLNode2D::update_q_values(const VectorXd& current_state) {
     q_values = q_network->forward(current_state);
 }
 
-Vector2 RLNode2D::choose_action(const VectorXd& current_state) {
+tuple<Vector2, int> RLNode2D::choose_action(const VectorXd& current_state) {
     update_q_values(current_state);
     int best_action_index = distance(q_values.data(), max_element(q_values.data(), q_values.data() + q_values.size()));
     vector<Vector2> action_map = {
@@ -135,15 +148,21 @@ Vector2 RLNode2D::choose_action(const VectorXd& current_state) {
         Vector2(1, -1).normalized(), // Diagonal down-right
         Vector2(-1, -1).normalized() // Diagonal down-left
     };
-    return action_map[best_action_index];
+    return {action_map[best_action_index], best_action_index};
 }
 
-double RLNode2D::calculate_movement_reward(Vector2 new_position) {
-    double distance_to_target = new_position.distance_to(target_position);
-    double max_expected_distance = 1000.0;
-    double reward = -(distance_to_target / max_expected_distance);
-    return clamp(reward, MIN_REWARD, MAX_REWARD);
+double RLNode2D::calculate_movement_reward(Vector2 previous_position, Vector2 new_position) {
+    double prev_distance = previous_position.distance_to(target_position);
+    double new_distance = new_position.distance_to(target_position);
+
+    double distance_change = prev_distance - new_distance;
+    if (distance_change > 0) {
+        return distance_change;  // Reward for getting closer
+    } else {
+        return -0.1;  // Small penalty for idling or moving away
+    }
 }
+
 
 void RLNode2D::store_experience(const VectorXd& state, int action, double reward, const VectorXd& next_state) {
     NeuralNetwork::Experience experience = { state, next_state, reward, action };
@@ -166,7 +185,7 @@ void RLNode2D::train_network() {
         mini_batch.push_back(replay_buffer[random_index]);
     }
 
-    q_network->train(mini_batch, 0.01, 0.99);
+    q_network->train(mini_batch, 0.1, 0.99);
 }
 
 void RLNode2D::update_target_network() {

@@ -384,10 +384,12 @@ y_sort_enabled = true
 shape = SubResource("CircleShape2D_e5ych")
 
 [node name="RLNode2D" type="RLNode2D" parent="."]
+health = -5.72778e+250
 is_attacking = true
-linear_velocity = Vector2(70.7107, -70.7107)
+linear_velocity = Vector2(100, 0)
+reward = nan
 position = Vector2(-113.501, 141.107)
-linear_velocity = Vector2(70.7107, -70.7107)
+linear_velocity = Vector2(100, 0)
 
 [node name="Timer" type="Timer" parent="."]
 

@@ -16,9 +16,11 @@ var los_distance = 150
 var last_target_position = null
 
 func _ready():
+	
 	add_to_group('enemy')
 	update_rl_enviornment()
 	rl_node_2d.reward = 0
+	rl_node_2d.target_position =Vector2(-700,-5600)
 	
 	# Initialize the debug line for the line of sight
 	los_visualization.show()
@@ -28,6 +30,7 @@ func _ready():
 		los_visualization.add_point(last_target_position)
 
 func _physics_process(delta):
+	print(rl_node_2d.reward)
 	if not dead:
 		if not is_attacking:
 			if rl_node_2d != null:
@@ -53,7 +56,7 @@ func update_rl_enviornment():
 	# Assign last known player location as target position for RL node
 	if last_target_position and last_target_position != Vector2.ZERO:
 		rl_node_2d.target_position = last_target_position
-		print("Current Target Position:", rl_node_2d.target_position)
+		#praaaaint("Current Target Position:", rl_node_2d.target_position)
 
 func update_direction():
 	# Update Line2D visualization to point to last known player location

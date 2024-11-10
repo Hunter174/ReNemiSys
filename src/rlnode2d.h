@@ -1,5 +1,5 @@
-#ifndef RLNODE2D_H
-#define RLNODE2D_H
+#ifndef RL_NODE_2D_H
+#define RL_NODE_2D_H
 
 #include <godot_cpp/classes/rigid_body2d.hpp>
 #include <godot_cpp/variant/vector2.hpp>
@@ -7,6 +7,7 @@
 #include <vector>
 #include <random>
 #include <deque>
+#include <tuple> // Required for std::tuple
 
 using namespace std;
 using Eigen::MatrixXd;
@@ -24,8 +25,8 @@ namespace godot {
         bool is_attacking;
         int frame_count;
 
-        Vector2 target_position; // Correctly declare target_position here
-        VectorXd  q_values; // Store Q-values for each action
+        Vector2 target_position; // Target position for the node
+        VectorXd q_values; // Q-values for each action
 
         double epsilon;
         double epsilon_decay;
@@ -36,16 +37,20 @@ namespace godot {
         NeuralNetwork* target_network;
         deque<NeuralNetwork::Experience> replay_buffer;
 
-        size_t buffer_size;
-        size_t batch_size;
+        size_t buffer_size = 10000; // Default buffer size
+        size_t batch_size = 32; // Default batch size
 
-        default_random_engine generator;
+        default_random_engine generator{random_device{}()}; // Seed the generator
+
+        // Plateau detection variables
+        int plateau_counter = 0;           // Tracks consecutive frames with no reward improvement
+        const int PLATEAU_THRESHOLD = 10;  // Frames before boosting exploration
 
         // Helper methods
-        Vector2 choose_action(const VectorXd& current_state);
+        tuple<Vector2, int> choose_action(const VectorXd& current_state);
         void train_network();
         void store_experience(const VectorXd& state, int action, double reward, const VectorXd& next_state);
-        double calculate_movement_reward(Vector2 new_position);
+        double calculate_movement_reward(Vector2 previous_position, Vector2 new_position);
         void update_target_network();
         void update_q_values(const VectorXd& current_state);
 
@@ -94,4 +99,4 @@ namespace godot {
 
 }
 
-#endif // RLNODE2D_H
+#endif // RL_NODE_2D_H

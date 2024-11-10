@@ -10,11 +10,15 @@ extends Node
 var factions = {}
 var load_state = null
 
+#var initial_members = {
+	#"Blue": ["BlueGoblin1", "BlueGoblin2", "BlueGoblin3"],
+	#"Purple": ["PurpleGoblin1", "PurpleGoblin2"],
+	#"Red": ["RedGoblin1"],
+	#"Yellow": ["YellowGoblin1"]
+#}
+
 var initial_members = {
-	"Blue": ["BlueGoblin1", "BlueGoblin2", "BlueGoblin3"],
-	"Purple": ["PurpleGoblin1", "PurpleGoblin2"],
-	"Red": ["RedGoblin1"],
-	"Yellow": ["YellowGoblin1"]
+	"Red": ["RedGoblin1"]
 }
 
 func _ready():
