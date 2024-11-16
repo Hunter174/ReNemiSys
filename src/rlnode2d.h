@@ -15,7 +15,7 @@ using Eigen::VectorXd;
 
 namespace godot {
 
-    class RLNode2D : public RigidBody2D  {
+    class RLNode2D : public RigidBody2D {
         GDCLASS(RLNode2D, RigidBody2D)
 
     private:
@@ -26,7 +26,9 @@ namespace godot {
         int frame_count;
 
         Vector2 target_position; // Target position for the node
-        VectorXd q_values; // Q-values for each action
+        Vector2 position;        // The position of the enemy node
+        Vector2 rl_velocity;     // Stores the target direction for velocity
+        VectorXd q_values;       // Q-values for each action
 
         double epsilon;
         double epsilon_decay;
@@ -38,7 +40,7 @@ namespace godot {
         deque<NeuralNetwork::Experience> replay_buffer;
 
         size_t buffer_size = 10000; // Default buffer size
-        size_t batch_size = 32; // Default batch size
+        size_t batch_size = 32;     // Default batch size
 
         default_random_engine generator{random_device{}()}; // Seed the generator
 
@@ -74,11 +76,14 @@ namespace godot {
         void set_is_attacking(bool attacking);
         bool get_is_attacking() const;
 
+        void set_position(Vector2 p_position);
+        Vector2 get_position() const;
+
         void set_target_position(Vector2 p_target_position);
         Vector2 get_target_position() const;
 
-        void set_linear_velocity(const Vector2 velocity);
-        Vector2 get_linear_velocity() const;
+        void set_rl_velocity(const Vector2 velocity);
+        Vector2 get_rl_velocity() const;
 
         void set_reward(double p_reward);
         double get_reward() const;

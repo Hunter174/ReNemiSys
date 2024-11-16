@@ -102,13 +102,6 @@ void NeuralNetwork::train(vector<Experience>& mini_batch, double learning_rate, 
         int action = experience.action;
         double reward = experience.reward;
 
-        // Amplify positive rewards, dampen negative rewards
-        if (reward > 0) {
-            reward *= 3;  // Increase positive rewards (adjust this factor as needed)
-        } else {
-            reward *= 0.0;  // Reduce the impact of negative rewards
-        }
-
         VectorXd target = forward(state);
         double max_next_q = forward(next_state).maxCoeff();
         double target_value = std::clamp(reward + gamma * max_next_q, TARGET_CLIP_MIN, TARGET_CLIP_MAX);

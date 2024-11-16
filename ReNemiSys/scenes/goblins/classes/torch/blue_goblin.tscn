@@ -389,12 +389,20 @@ shape = SubResource("CircleShape2D_2nvyc")
 shape = SubResource("CircleShape2D_8usp2")
 
 [node name="RLNode2D" type="RLNode2D" parent="."]
-q_value_3 = 1.0
+q_value_0 = nan
+q_value_1 = nan
+q_value_2 = nan
+q_value_3 = nan
+q_value_4 = nan
+q_value_5 = nan
+q_value_6 = nan
+q_value_7 = nan
+health = nan
 is_attacking = true
-linear_velocity = Vector2(0, -100)
-reward = 494.285
+rl_velocity = Vector2(1, 0)
+reward = -1.0
 position = Vector2(-104.589, 136.836)
-linear_velocity = Vector2(0, -100)
+linear_velocity = Vector2(100, 0)
 
 [node name="Timer" type="Timer" parent="."]
 

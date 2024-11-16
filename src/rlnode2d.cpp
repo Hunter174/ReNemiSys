@@ -24,12 +24,14 @@ void RLNode2D::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_speed", "p_speed"), &RLNode2D::set_speed);
     ClassDB::bind_method(D_METHOD("get_health"), &RLNode2D::get_health);
     ClassDB::bind_method(D_METHOD("set_health", "_health"), &RLNode2D::set_health);
+    ClassDB::bind_method(D_METHOD("get_position"), &RLNode2D::get_position);
+    ClassDB::bind_method(D_METHOD("set_position", "p_position"), &RLNode2D::set_position);
     ClassDB::bind_method(D_METHOD("get_target_position"), &RLNode2D::get_target_position);
     ClassDB::bind_method(D_METHOD("set_target_position", "p_target_position"), &RLNode2D::set_target_position);
     ClassDB::bind_method(D_METHOD("get_is_attacking"), &RLNode2D::get_is_attacking);
     ClassDB::bind_method(D_METHOD("set_is_attacking", "attacking"), &RLNode2D::set_is_attacking);
-    ClassDB::bind_method(D_METHOD("get_linear_velocity"), &RLNode2D::get_linear_velocity);
-    ClassDB::bind_method(D_METHOD("set_linear_velocity", "velocity"), &RLNode2D::set_linear_velocity);
+    ClassDB::bind_method(D_METHOD("get_rl_velocity"), &RLNode2D::get_rl_velocity);
+    ClassDB::bind_method(D_METHOD("set_rl_velocity", "velocity"), &RLNode2D::set_rl_velocity);
     ClassDB::bind_method(D_METHOD("get_reward"), &RLNode2D::get_reward);
     ClassDB::bind_method(D_METHOD("set_reward", "reward"), &RLNode2D::set_reward);
 
@@ -58,7 +60,7 @@ void RLNode2D::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "health", PROPERTY_HINT_RANGE, "0,100,0.1"), "set_health", "get_health");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "is_attacking"), "set_is_attacking", "get_is_attacking");
     ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "target_position"), "set_target_position", "get_target_position");
-    ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "linear_velocity"), "set_linear_velocity", "get_linear_velocity");
+    ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "rl_velocity"), "set_rl_velocity", "get_rl_velocity");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "reward"), "set_reward", "get_reward");
 }
 
@@ -88,6 +90,11 @@ void RLNode2D::_physics_process(double delta) {
     state_vector(2) = health;
     state_vector(3) = is_attacking ? 1.0 : 0.0;
 
+    // Update Q-values explicitly for visibility in Godot
+    update_q_values(state_vector);
+
+    Vector2 previous_position = get_position();
+
     // Check if the update interval has been reached
     if (frame_count % UPDATE_INTERVAL_FRAMES == 0) {
         Vector2 previous_position = get_position();
@@ -98,31 +105,37 @@ void RLNode2D::_physics_process(double delta) {
         Vector2 new_position = previous_position + chosen_action * speed * delta;
         double movement_reward = calculate_movement_reward(previous_position, new_position);
 
-        // Check if reward has improved or plateaued
-        if (movement_reward > 0) {
-            reward += movement_reward;
-            plateau_counter = 0;  // Reset plateau counter if reward improves
-        } else {
-            plateau_counter++;  // Increment plateau counter if reward stagnates
-        }
-
-        // Temporarily boost exploration if plateau persists
-        if (plateau_counter >= PLATEAU_THRESHOLD) {
-            epsilon = max(epsilon, 0.5);  // Increase epsilon for exploration
-        } else {
-            epsilon = max(min_epsilon, epsilon * epsilon_decay); // Normal decay of epsilon
-        }
-
+        // Smooth reward calculation to prevent accumulation issues
+        reward = 0.9 * reward + movement_reward;  // Decay accumulated reward
         reward = clamp(reward, MIN_REWARD, MAX_REWARD);
-        set_linear_velocity(chosen_action * speed);
+
+        // Adjust epsilon dynamically for exploration
+        if (movement_reward <= 0) {
+            plateau_counter++;
+            if (plateau_counter >= PLATEAU_THRESHOLD) {
+                epsilon = max(epsilon, 0.5);  // Temporarily boost exploration
+            }
+        } else {
+            plateau_counter = 0;
+            epsilon = max(min_epsilon, epsilon * epsilon_decay);  // Normal decay of epsilon
+        }
+
+        // Set velocity based on chosen action
+        set_rl_velocity(chosen_action);
 
         // Update the state and store experience
         VectorXd next_state = state_vector;
         next_state(0) = new_position.x;
         next_state(1) = new_position.y;
-        store_experience(state_vector, action_index, reward, next_state);
+        store_experience(state_vector, action_index, movement_reward, next_state);
 
+        // Train the network using experience replay
         train_network();
+
+        // Periodic exploration reset for global search
+        if (frame_count % 1000 == 0) {
+            epsilon = max(epsilon, 0.8);
+        }
     }
 
     // Reset frame counter if it reaches its max value
@@ -203,12 +216,12 @@ Vector2 RLNode2D::eigen_to_vector2(const VectorXd& vec) {
     return (vec.size() >= 2) ? Vector2(vec(0), vec(1)) : Vector2();
 }
 
-void RLNode2D::set_linear_velocity(const Vector2 velocity) {
-    RigidBody2D::set_linear_velocity(velocity);
+void RLNode2D::set_rl_velocity(const Vector2 velocity) {
+    rl_velocity = velocity;
 }
 
-Vector2 RLNode2D::get_linear_velocity() const {
-    return RigidBody2D::get_linear_velocity();
+Vector2 RLNode2D::get_rl_velocity() const {
+    return rl_velocity;
 }
 
 void RLNode2D::set_is_attacking(bool attacking) {
@@ -225,6 +238,14 @@ void RLNode2D::set_target_position(Vector2 p_target_position) {
 
 Vector2 RLNode2D::get_target_position() const {
     return target_position;
+}
+
+void RLNode2D::set_position(Vector2 p_position) {
+    position = p_position;
+}
+
+Vector2 RLNode2D::get_position() const {
+    return position;
 }
 
 void RLNode2D::set_health(double p_health) {

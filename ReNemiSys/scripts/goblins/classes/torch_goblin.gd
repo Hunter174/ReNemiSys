@@ -21,6 +21,10 @@ func _ready():
 	update_rl_enviornment()
 	rl_node_2d.reward = 0
 	rl_node_2d.target_position =Vector2(-700,-5600)
+	rl_node_2d.rl_velocity = Vector2.ZERO
+	rl_node_2d.linear_velocity = Vector2.ZERO
+	rl_node_2d.global_position = goblin_area.global_position
+	rl_node_2d.position = goblin_area.position
 	
 	# Initialize the debug line for the line of sight
 	los_visualization.show()
@@ -30,7 +34,28 @@ func _ready():
 		los_visualization.add_point(last_target_position)
 
 func _physics_process(delta):
-	print(rl_node_2d.reward)
+	rl_node_2d.linear_velocity = Vector2.ZERO
+	print(rl_node_2d.linear_velocity)
+	
+	print("Reward: ", rl_node_2d.reward)
+	print("Global Position", global_position)
+	print("RL Node Position: ", rl_node_2d.position)
+	print("RL Node Global Position: ", rl_node_2d.global_position)
+	print("Entity Global Position: ", goblin_area.global_position)
+	print("Entity Position: ", goblin_area.position)
+	print("RL Node Target Position: ", rl_node_2d.target_position)
+	print("Q-values:")
+	print(" Q-value 0: ", rl_node_2d.q_value_0)
+	print(" Q-value 1: ", rl_node_2d.q_value_1)
+	print(" Q-value 2: ", rl_node_2d.q_value_2)
+	print(" Q-value 3: ", rl_node_2d.q_value_3)
+	print(" Q-value 4: ", rl_node_2d.q_value_4)
+	print(" Q-value 5: ", rl_node_2d.q_value_5)
+	print(" Q-value 6: ", rl_node_2d.q_value_6)
+	print(" Q-value 7: ", rl_node_2d.q_value_7)
+	print()
+	
+	### Debugging for individual agents ###
 	if not dead:
 		if not is_attacking:
 			if rl_node_2d != null:
@@ -50,9 +75,14 @@ func _physics_process(delta):
 			linear_velocity = Vector2.ZERO
 
 func update_rl_enviornment():
-	linear_velocity = rl_node_2d.linear_velocity
+	linear_velocity = rl_node_2d.rl_velocity *100
+	print("Linear vel",rl_node_2d.rl_velocity)
 	rl_node_2d.health = float(self.health)
 	rl_node_2d.is_attacking = is_attacking
+	rl_node_2d.position = goblin_area.position
+	rl_node_2d.global_position = goblin_area.global_position
+	rl_node_2d.linear_velocity = Vector2.ZERO
+	
 	# Assign last known player location as target position for RL node
 	if last_target_position and last_target_position != Vector2.ZERO:
 		rl_node_2d.target_position = last_target_position

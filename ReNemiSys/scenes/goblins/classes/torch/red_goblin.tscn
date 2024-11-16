@@ -384,7 +384,7 @@ shape = SubResource("CircleShape2D_e5ych")
 [node name="RLNode2D" type="RLNode2D" parent="."]
 is_attacking = true
 target_position = Vector2(1, 1)
-linear_velocity = Vector2(0, -100)
+rl_velocity = Vector2(0, 0)
 reward = 1000.0
 position = Vector2(-30.0806, -72.8607)
 linear_velocity = Vector2(0, -100)
