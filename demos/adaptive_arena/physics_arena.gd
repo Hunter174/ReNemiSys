@@ -14,6 +14,9 @@ const ISOLATED_SEEDS := [42013, 42017, 42043, 42061, 42073, 42089, 42101, 42131]
 # Reserved for a NEW opponent that responds to visible NPC actions/HP/distance.
 const REACTIVE_SEEDS := [51001, 51011, 51023, 51047, 51059, 51071, 51083, 51103]
 const REACTIVE_STYLES := ["counter_tactic", "hunt_injured", "range_control", "tire_out"]
+# Frozen for v3 ONLY. Never use these seeds or rules in training/diagnostics.
+const V3_BLIND_SEEDS := [61001, 61013, 61027, 61039, 61051, 61069, 61081, 61097]
+const V3_BLIND_STYLES := ["wall_switch", "bait_hold", "reach_cycle", "cross_feint"]
 const NOVEL_STYLES := ["feint", "burst_kite", "orbit_flip", "stop_go"]
 
 class Actor extends CharacterBody2D:
@@ -62,6 +65,10 @@ var full_decision_ms: Array[float] = []
 var phases := ["dodge_right", "dodge_left", "rush", "kite"]
 var novel := OS.get_environment("ARENA_NOVEL") == "1"
 var reactive := OS.get_environment("ARENA_REACTIVE") == "1"
+var v3_blind := OS.get_environment("ARENA_V3_BLIND") == "1"
+var long_bout := OS.get_environment("ARENA_LONG_BOUT") == "1"
+var blind_dry_run := OS.get_environment("ARENA_BLIND_DRY_RUN") == "1"
+var blind_v2_baseline := OS.get_environment("ARENA_BLIND_V2_BASELINE") == "1"
 var team_size := 10
 var current_phase := -1
 var phase_elapsed := 0.0
@@ -95,6 +102,12 @@ func percentile(values: Array[float], fraction: float) -> float:
     return values[clampi(ceili(float(values.size()) * fraction) - 1, 0, values.size() - 1)]
 
 func _ready() -> void:
+    if v3_blind:
+        if collecting or diagnostic or novel or reactive or not physics_policy or not refined or (OS.get_environment("ARENA_V3") != "1" and not blind_dry_run and not blind_v2_baseline) or (int(blind_dry_run) + int(blind_v2_baseline) + int(OS.get_environment("ARENA_V3") == "1")) != 1 or not OS.has_environment("ARENA_SINGLE_TEAM") or not long_bout or (blind_dry_run and (OS.has_environment("ARENA_HELDOUT_SEED") or OS.get_environment("ARENA_DEV_SEED") != "700")) or (not blind_dry_run and not OS.has_environment("ARENA_HELDOUT_SEED")):
+            push_error("Blind v3 requires immutable v3 inference and a single long-bout team")
+            get_tree().quit(1)
+            return
+        phases = V3_BLIND_STYLES.duplicate()
     if diagnostic:
         var seed_text := OS.get_environment("ARENA_DEV_SEED")
         if not seed_text.is_valid_int() or not seed_text.to_int() in range(700, 708) or collecting or novel or reactive or not refined or not physics_policy or OS.get_environment("ARENA_SINGLE_TEAM") != "learned" or OS.has_environment("ARENA_HELDOUT_SEED") or OS.has_environment("ARENA_FINAL_SEED") or OS.has_environment("ARENA_EVAL_SEED"):
@@ -103,7 +116,7 @@ func _ready() -> void:
             return
         if OS.get_environment("ARENA_DEV_LUNGE") == "1":
             phases = ["dodge_right", "dodge_left", "post_attack_lunge", "kite"]
-    if novel and reactive:
+    if (novel and reactive) or (v3_blind and (novel or reactive)):
         push_error("Select only one evaluation opponent")
         get_tree().quit(1)
         return
@@ -128,7 +141,7 @@ func _ready() -> void:
         evaluation_modes.clear()
         evaluation_modes.append(team)
     if collecting:
-        if duel or novel or reactive or team_size != 10 or OS.get_environment("ARENA_EXTENDED") == "1":
+        if duel or novel or reactive or v3_blind or team_size != 10 or OS.get_environment("ARENA_EXTENDED") == "1":
             push_error("Rollouts require the original ten-goblin, two-team training contract")
             get_tree().quit(1)
             return
@@ -137,23 +150,33 @@ func _ready() -> void:
             push_error("Refined training uses seeds 500–531 only")
             get_tree().quit(1)
             return
-        if training_seed in [15137, 29011] or training_seed in HELDOUT_SEEDS or training_seed in NOVEL_SEEDS or training_seed in ISOLATED_SEEDS or training_seed in REACTIVE_SEEDS or OS.has_environment("ARENA_HELDOUT_SEED") or OS.get_environment("ARENA_EVAL_SEED") == "15137" or OS.get_environment("ARENA_FINAL_SEED") == "29011":
+        if training_seed in [15137, 29011] or training_seed in HELDOUT_SEEDS or training_seed in NOVEL_SEEDS or training_seed in ISOLATED_SEEDS or training_seed in REACTIVE_SEEDS or training_seed in V3_BLIND_SEEDS or OS.has_environment("ARENA_HELDOUT_SEED") or OS.get_environment("ARENA_EVAL_SEED") == "15137" or OS.get_environment("ARENA_FINAL_SEED") == "29011":
             push_error("Held-out evaluation seed must not be used for training")
             get_tree().quit(1)
             return
         policy = Core.SharedPolicy.new(training_seed)
-    var artifact := ("user://physics_policy_v2.json" if refined else "user://physics_policy_v1.json") if physics_policy else "user://adaptive_policy_v1.json"
+    var artifact := ("user://physics_policy_v3.json" if v3_blind and not blind_dry_run and not blind_v2_baseline else ("user://physics_policy_v2.json" if refined else "user://physics_policy_v1.json")) if physics_policy else "user://adaptive_policy_v1.json"
     if not (collecting and refined) and not policy.load_artifact(artifact) and not collecting:
         push_error("Policy unavailable; train first. Tried: " + artifact)
         get_tree().quit(1)
         return
+    if v3_blind and not blind_dry_run and not blind_v2_baseline:
+        if policy.weights.is_empty():
+            push_error("Refusing empty v3 blind policy")
+            get_tree().quit(1)
+            return
+        for key in policy.weights:
+            if not key is String or not key.begins_with("v3:"):
+                push_error("Refusing artifact without the frozen v3 observation schema")
+                get_tree().quit(1)
+                return
     Engine.max_fps = 0 if collecting else 60
-    var approved_seeds: Array = REACTIVE_SEEDS if reactive else (NOVEL_SEEDS + ISOLATED_SEEDS if novel else HELDOUT_SEEDS)
+    var approved_seeds: Array = V3_BLIND_SEEDS if v3_blind else (REACTIVE_SEEDS if reactive else (NOVEL_SEEDS + ISOLATED_SEEDS if novel else HELDOUT_SEEDS))
     if OS.has_environment("ARENA_HELDOUT_SEED") and not int(OS.get_environment("ARENA_HELDOUT_SEED")) in approved_seeds:
         push_error("Evaluation seed is not in the predeclared held-out set")
         get_tree().quit(1)
         return
-    scenario_seed = OS.get_environment("ARENA_DEV_SEED").to_int() if diagnostic else (training_seed if collecting else (int(OS.get_environment("ARENA_HELDOUT_SEED")) if OS.has_environment("ARENA_HELDOUT_SEED") else (29011 if OS.get_environment("ARENA_FINAL_SEED") == "29011" else (15137 if OS.get_environment("ARENA_EVAL_SEED") == "15137" else 991))))
+    scenario_seed = OS.get_environment("ARENA_DEV_SEED").to_int() if diagnostic or blind_dry_run else (training_seed if collecting else (int(OS.get_environment("ARENA_HELDOUT_SEED")) if OS.has_environment("ARENA_HELDOUT_SEED") else (29011 if OS.get_environment("ARENA_FINAL_SEED") == "29011" else (15137 if OS.get_environment("ARENA_EVAL_SEED") == "15137" else 991))))
     _wall(Vector2(480, 0), Vector2(960, 22))
     _wall(Vector2(480, 600), Vector2(960, 22))
     _wall(Vector2(0, 300), Vector2(22, 600))
@@ -274,6 +297,8 @@ func _reset_phase(index: int, new_team: bool = false) -> void:
     var starts: Array[Vector2] = []
     var starts_text := ""
     observed_styles = ""
+    if v3_blind:
+        observed_styles = "v3-blind-v1:%s:%d" % [phases[index], scenario_seed]
     if reactive:
         # The opponent contract, NOT an identical trajectory: it reacts to each
         # team's visible actions and can legitimately follow a different path.
@@ -319,6 +344,13 @@ func _reset_phase(index: int, new_team: bool = false) -> void:
     decision_timer = 0.0
     noise_timer = 1.0 # Force a new, seeded observable style at the phase boundary.
 
+func _advance_blind_phase(index: int) -> void:
+    # Continuing fight: preserve HP, stamina, position, per-agent beliefs and
+    # original start hash. Only opponent rule and phase clock change.
+    current_phase = index
+    phase_elapsed = 0.0
+    observed_styles = "v3-blind-v1:%s:%d" % [phases[index], scenario_seed]
+
 func _baseline_action(goblin: Actor, legal: Array) -> String:
     var team: String = evaluation_modes[current_mode]
     if team == "conservative":
@@ -348,9 +380,12 @@ func _physics_process(delta: float) -> void:
         _record_phase()
         var new_team := desired_mode != current_mode
         current_mode = desired_mode
-        _reset_phase(desired_phase, new_team)
+        if v3_blind and long_bout and not new_team:
+            _advance_blind_phase(desired_phase)
+        else:
+            _reset_phase(desired_phase, new_team)
     var style: String = phases[current_phase]
-    if not novel and not reactive and OS.get_environment("ARENA_NOISY") == "1":
+    if not novel and not reactive and not v3_blind and OS.get_environment("ARENA_NOISY") == "1":
         noise_timer += delta
         if noise_timer >= 0.6:
             noise_timer = 0.0
@@ -369,6 +404,21 @@ func _physics_process(delta: float) -> void:
     var toward := (nearest.position - player.position).normalized()
     var tangent := Vector2(-toward.y, toward.x)
     var player_move := toward if style == "rush" else (-toward if style == "kite" else (tangent if style == "dodge_right" else -tangent))
+    if v3_blind:
+        # Frozen game-owned opponent rules, responsive to visible positions/actions.
+        # Both teams face identical rules and starting slots, NOT identical paths.
+        var distance := player.position.distance_to(nearest.position)
+        match style:
+            "wall_switch":
+                var at_wall := player.position.x < 90.0 or player.position.x > 870.0 or player.position.y < 90.0 or player.position.y > 510.0
+                player_move = toward if at_wall else (tangent if phase_elapsed < 2.5 else -tangent)
+            "bait_hold":
+                player_move = -toward if nearest.action == "guard" else (toward if fmod(phase_elapsed, 1.4) < 0.25 else -tangent)
+            "reach_cycle":
+                player_move = toward if distance > 150.0 else (tangent if distance < 65.0 else -toward)
+            "cross_feint":
+                var opening_hp := 3.0 if duel else 100.0
+                player_move = tangent if player.hp > opening_hp * 0.7 else (-tangent if nearest.hp > 2.0 else toward)
     if reactive:
         # Reacts to the NPC's PREVIOUSLY visible action, stamina and health—not
         # hidden policy weights or future moves. Same opponent algorithm per team.
@@ -419,6 +469,10 @@ func _physics_process(delta: float) -> void:
                 # memories/traits still pass through Mind's stable save contract.
                 var distance := goblin.position.distance_to(player.position)
                 state += ":%s:%s" % [cue, "contact" if distance <= 55.0 else ("closing" if distance <= 145.0 else "far")]
+            if v3_blind and not blind_dry_run and not blind_v2_baseline and not state.begins_with("v3:"):
+                push_error("Refusing blind evaluation until the versioned v3 state is implemented")
+                get_tree().quit(1)
+                return
             if collecting and goblin.learned:
                 _finish_transition(goblin, state, legal, goblin.hp <= 0.0)
             if diagnostic and goblin.learned:
@@ -473,11 +527,11 @@ func _physics_process(delta: float) -> void:
             goblin.action == "flank_right" and lateral < -25.0) or (
             goblin.action == "flank_left" and lateral > 25.0) or (
             goblin.action == "guard" and advancing > 35.0)
-        if connects and goblin.cooldown == 0.0 and goblin.attack_area.get_overlapping_bodies().has(player):
+        if connects and goblin.cooldown == 0.0 and goblin.attack_area.get_overlapping_bodies().has(player) and (not v3_blind or player.hp > 0.0):
             if goblin.action == "guard" or goblin.stamina >= 2.0:
                 goblin.stamina -= 0.0 if goblin.action == "guard" else 2.0
                 goblin.cooldown = 0.7
-                player.hp -= 1.0
+                player.hp = maxf(0.0, player.hp - 1.0) if v3_blind else player.hp - 1.0
                 goblin.hits += 1
                 injuries[evaluation_modes[current_mode]] += 1
                 var phase_key: String = "%s_%s" % [phases[current_phase], evaluation_modes[current_mode]]
@@ -538,8 +592,8 @@ func _process(_delta: float) -> void:
             " hits_by_policy=", injuries, " modes=", evaluation_modes, " duel=", duel,
             " learned_tactics=", tactics, " phase_tactics=", phase_tactics, " phase_hits=", phase_hits,
             " episode_outcomes=", episode_results,
-            " noisy_variant=", OS.get_environment("ARENA_NOISY") == "1", " scenario=", "reactive" if reactive else ("novel" if novel else "standard"), " paired_inputs=", paired_inputs,
-            " source=", "physics" if physics_policy else "abstract", " policy_variant=", "refined" if refined else "original", " rollouts=", rollouts.size(),
+            " noisy_variant=", OS.get_environment("ARENA_NOISY") == "1", " scenario=", "v3_blind" if v3_blind else ("reactive" if reactive else ("novel" if novel else "standard")), " paired_inputs=", paired_inputs,
+            " source=", "physics" if physics_policy else "abstract", " policy_variant=", "v3_dry_run" if blind_dry_run else ("v2_blind_baseline" if blind_v2_baseline else ("v3" if v3_blind else ("refined" if refined else "original"))), " rollouts=", rollouts.size(),
             " persistent_courage=", goblins[0].mind.courage)
         # Zero hits is a valid (if poor) outcome, especially for defensive play.
         get_tree().quit(1 if legal_violations > 0 else 0)
