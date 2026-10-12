@@ -16,6 +16,7 @@ func _initialize() -> void:
 
 func run() -> void:
     var policy = Core.SharedPolicy.new(43)
+    var training_started_us := Time.get_ticks_usec()
     # OFFLINE TRAINING ONLY. Fixed payoff mechanics, observed player moves, epsilon exploration;
     # agents do not optimize neural weights during _physics_process.
     for courage in [0.2, 0.8]:
@@ -31,6 +32,7 @@ func run() -> void:
                             var action: String = policy.select(state, Core.ACTIONS, 0.35)
                             var reward: float = Core.encounter_reward(style, action, mind, low, tough)
                             policy.learn(state, action, reward, state, true)
+    var training_ms := float(Time.get_ticks_usec() - training_started_us) / 1000.0
     var artifact := "user://adaptive_policy_v1.json"
     check(policy.save_artifact(artifact), "Training artifact must save")
     var loaded = Core.SharedPolicy.new(99)
@@ -132,11 +134,13 @@ func run() -> void:
         for agent in agents:
             loaded.select(agent.observation(false, false), Core.ACTIONS)
         independent.append(float(Time.get_ticks_usec() - start) / 1000.0)
-    print("ARENA_CHECK shared_q_states=", loaded.weights.size(), " brave=", brave_action,
+    print("ARENA_CHECK training_ms=", snappedf(training_ms, 0.1),
+        " shared_q_states=", loaded.weights.size(), " brave=", brave_action,
         " coward=", timid_action, " adapt=", right_action, "->", left_action,
         " scripted_adaptive_reward=", adaptive_score, " fixed_pressure_reward=", fixed_score,
         " noisy_style_reward=", snappedf(mixed_adaptive, 0.1), " noisy_fixed_reward=", snappedf(mixed_fixed, 0.1),
         " right_before_switch=", early_right, "/30 left_after_switch=", late_left, "/30",
         " 20_agents_p50_ms=", percentile(independent, 0.5),
-        " 20_agents_p95_ms=", percentile(independent, 0.95), " failures=", failures)
+        " 20_agents_p95_ms=", percentile(independent, 0.95),
+        " 20_agents_p99_ms=", percentile(independent, 0.99), " failures=", failures)
     quit(1 if failures else 0)
