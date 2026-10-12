@@ -99,7 +99,7 @@ class SharedPolicy:
     func select(key: String, legal: Array, epsilon: float = 0.0) -> String:
         var choices: Array[String] = []
         for action in legal:
-            if action in ["pressure", "flank_right", "flank_left", "guard", "retreat"] and not choices.has(action):
+            if ACTIONS.has(action) and not choices.has(action):
                 choices.append(action)
         if choices.is_empty():
             return "" # the game must not invent an action
@@ -109,9 +109,12 @@ class SharedPolicy:
             return "guard" if choices.has("guard") else choices[0]
         var q: Array = weights[key]
         var best: String = choices[0]
+        var best_value: float = float(q[ACTIONS.find(best)])
         for action in choices:
-            if q[["pressure", "flank_right", "flank_left", "guard", "retreat"].find(action)] > q[["pressure", "flank_right", "flank_left", "guard", "retreat"].find(best)]:
+            var value: float = float(q[ACTIONS.find(action)])
+            if value > best_value: # Preserve the previous legal-order tie break.
                 best = action
+                best_value = value
         return best
 
     func learn(key: String, action: String, reward: float, next_key: String, done: bool, next_legal: Array = ["pressure", "flank_right", "flank_left", "guard", "retreat"]) -> void:

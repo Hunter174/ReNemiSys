@@ -44,6 +44,15 @@ python demos/adaptive_arena/heldout_eval.py --novel --isolated --godot /path/to/
 python demos/adaptive_arena/heldout_eval.py --novel --isolated --refined --godot /path/to/Godot_v4.4.1-stable_win64_console.exe --output /path/outside/git/refined.json
 # Refined development-only rendered CPU/frame timing, never --fixed-fps:
 ARENA_REFINED=1 ARENA_USE_PHYSICS_POLICY=1 ARENA_NOISY=1 ARENA_EXTENDED=1 ARENA_AUTORUN=1 Godot-4.4.1 --path demos/adaptive_arena --rendering-method gl_compatibility res://physics_arena.tscn
+# A SECOND independently frozen opponent reacts to past NPC actions, visible
+# stamina/HP and distance. Fresh processes: one policy per bout, eight new seeds.
+python demos/adaptive_arena/heldout_eval.py --reactive --isolated --godot /path/to/Godot_v4.4.1-stable_win64_console.exe --output /path/outside/git/reactive-original.json
+python demos/adaptive_arena/heldout_eval.py --reactive --isolated --refined --godot /path/to/Godot_v4.4.1-stable_win64_console.exe --output /path/outside/git/reactive-refined.json
+# One active learned team for a 20s rendered 8/10/20-agent full-pass timing check:
+for agents in 8 10 20; do
+  ARENA_AGENTS="$agents" ARENA_SINGLE_TEAM=learned ARENA_REFINED=1 ARENA_USE_PHYSICS_POLICY=1 ARENA_NOISY=1 ARENA_AUTORUN=1 Godot-4.4.1 --path demos/adaptive_arena --rendering-method gl_compatibility res://physics_arena.tscn
+done
+Godot-4.4.1 --headless --path demos/adaptive_arena --script res://policy_select_check.gd
 ```
 
 The shared-policy JSON artifact is saved under Godot's `user://adaptive_policy_v1.json` (outside the Git tree) with version/action schema and a SHA-256 integrity check. A *separate*, validated game-owned `user://goblin_personality_v1.json` snapshot demonstrates persistence of courage/ambition, bounded player memory and the already-applied epiphany IDs across reload. Neither file is exported or cryptographically authenticated; do not accept either as an untrusted network player instruction. The local demo verifies identical weights on reload, malformed artifact rejection, action masks, safe choice for unseen states without mutating weights, personality-dependent low-health tactics, absence of an ordinary mid-fight trait rewrite, and an explicitly authorized, idempotent epiphany event that survives a save/reload. Four scripted training archetypes (rush, dodge right/left, kite) and a separate seeded stochastic opponent that changes dodge bias mid-fight test whether remembered behavior changes tactics. The payoff mechanics are authored **for this toy environment**; performance here is not evidence of realistic combat strategy or robustness against unseen players.
@@ -85,4 +94,28 @@ The first novel-style evaluation (sequential policy modes) revealed a **fairness
 
 Group bouts **all timed out**; refined damage beat fixed pressure in **5/8** seeds, but the player defeated more refined goblins (6 vs 4), including three during feints. Its three duel losses were all against stop/go. This is still a **survival/fairness tradeoff**, not uniform improvement. The novel *movement styles* were never trained on, but they remain scripted archetypes in one simplified arena; eight seeds are not independent opponent designs or real-game validation. Refined ten-agent rendered *development* timing: observation+policy p50/p95/p99 **0.310/1.048/1.525 ms**, frame p95/max **18.886/22.735 ms** on this Windows/Godot 4.4.1 CPU setup. The p95 pass is no longer sub-millisecond; headless fixed-fps reports cannot replace these measurements. The early training-only right/left phase diagnostic changed from predominantly right flanks in both phases to **48 right vs 44 left** in right-dodge and **29 right vs 52 left** in left-dodge; the fresh novel tests measured wins/damage, not a separate causal reversal proof.
 
-**Remaining (#2 stays open):** do not tune to either frozen evaluation set; measure more independent opponents, longer fights and 8–20 agents; improve survival and p95/p99 cost without sacrificing held-out damage, then re-freeze **new** seeds/styles before another change. Validate a pretrained MLGodotKit neural network in this same arena only if a tabular baseline generalizes, using [MLGodotKit#50](https://github.com/Hunter174/MLGodotKit/issues/50)'s snapshot/export gate. Existing ReNemiSys entities, MLGodotKit and SaLMon remain uncoupled; future SaLMon diplomatic proposals must be game-authorized.
+### Independently frozen reactive opponent, agent-count timing (issue #2 still open)
+
+Commit `9ff868f` froze **eight new seeds** (51001, 51011, 51023, 51047, 51059, 51071, 51083, 51103) and four *reactive* player strategies **before their evaluation**. Unlike earlier scripts, this opponent chooses movement from the nearest goblin's previously visible tactic, stamina, HP or range (counter-tactic, hunt-injured, range-control, tire-out). It does not inspect weights or future choices; NPCs still see only physical velocity, never the opponent's named strategy. Collection **refuses** this mode and these seeds. Each team is evaluated in a fresh process with the same placements and opponent **rule contract**. A reactive player cannot follow an identical trajectory against different policies; its contract hash is not evidence of identical movement. Zero-hit defensive bouts are legal outcomes, not test failures.
+
+| Policy (32 reactive bouts/team) | Ten-goblin hits / goblins defeated | 1v1 goblin wins / losses / timeouts |
+| --- | ---: | ---: |
+| Original physics v1 | 838 / 6 | 8 / 18 / 6 |
+| Refined physics v2 | **866 / 3** | **18 / 9 / 5** |
+| Fixed pressure (unchanged across runs) | 664 / 5 | 15 / 16 / 1 |
+| Conservative (unchanged) | 0 / 0 | 0 / 0 / 32 |
+| Authored FSM (unchanged) | 619 / 2 | **30 / 0 / 2** |
+
+All group bouts timed out. Refined group damage beat pressure in **7/8 seeds**, but the authored FSM's duels were far stronger: refined **lost all eight tire-out duels** (the FSM won them). This reveals a specific stamina-vulnerability / reactive-opponent generalization gap; **do not train to these held-out seeds or retest on them as though unseen**.
+
+Inference selection was simplified without altering tie breaks, legal masks or policy weights. `policy_select_check.gd` exhaustively checked **13,392 choices** over loaded v1/v2 states, all nonempty legal masks in both orders, unseen states and ties; zero failures. In one before/after Windows Godot 4.4.1 **rendered** development run (non-held-out seed 991, one team for 20 seconds; not a controlled benchmark), full-active observation-to-policy p50/p95/p99 in ms:
+
+| Agents | Before select change | After select change | After frame p95 / p99 (ms) | Full passes |
+| --- | --- | --- | --- | ---: |
+| 8 | 0.280 / 0.472 / 0.937 | 0.225 / 0.423 / 0.600 | 17.102 / 17.840 | 92 |
+| 10 | 0.311 / 0.602 / 1.181 | 0.272 / 0.414 / 0.517 | 17.171 / 18.270 | 87 |
+| 20 | 0.579 / 0.976 / 4.352 | 0.491 / 0.792 / 1.350 | 17.426 / 19.528 | 92 |
+
+These are measurements, **not repeatable p99 guarantees** or a proof of speedup; host CPU variation can dominate tails. The full-pass filter excludes bursts after an NPC dies; it never substitutes fast fallback actions for model decisions. Fixed-fps headless runs report combat outcomes only, not frame latency. No GPU, main-game, export or production claim is made.
+
+**Remaining:** make stamina and threatened-state information available in *training-only* physics scenarios, reassess reward/survival tradeoffs on independent development opponents, then freeze entirely new seeds and reactive strategies before evaluating any retrained v3. Longer bouts and main-game constraints still need verification. Validate a pretrained MLGodotKit neural network in this same arena only if a baseline generalizes, using [MLGodotKit#50](https://github.com/Hunter174/MLGodotKit/issues/50)'s snapshot/export gate. Existing ReNemiSys entities, MLGodotKit and SaLMon remain uncoupled; future SaLMon diplomatic proposals must be game-authorized. #2 remains open.

@@ -57,6 +57,7 @@ var attack_timer := 0.0
 var last_frame_us := 0
 var frame_intervals: Array[float] = []
 var decision_ms: Array[float] = []
+var full_decision_ms: Array[float] = []
 var phases := ["dodge_right", "dodge_left", "rush", "kite"]
 var novel := OS.get_environment("ARENA_NOVEL") == "1"
 var reactive := OS.get_environment("ARENA_REACTIVE") == "1"
@@ -369,9 +370,11 @@ func _physics_process(delta: float) -> void:
     if decision_timer >= ACTION_PERIOD:
         decision_timer = 0.0
         var start := Time.get_ticks_usec()
+        var decision_agents := 0
         for goblin in goblins:
             if not goblin.enabled or goblin.hp <= 0.0:
                 continue
+            decision_agents += 1
             var relative := (goblin.position - player.position).normalized()
             var side := Vector2(-relative.y, relative.x)
             var cue := "rush" if player.velocity.dot(relative) > 35.0 else ("kite" if player.velocity.dot(relative) < -35.0 else ("dodge_right" if player.velocity.dot(side) > 0.0 else "dodge_left"))
@@ -401,7 +404,10 @@ func _physics_process(delta: float) -> void:
                 var by_phase: String = "%s_%s" % [phases[current_phase], goblin.action]
                 phase_tactics[by_phase] = phase_tactics.get(by_phase, 0) + 1
             goblin.mind.observe_player(cue) # After choice; only visible velocity, not the scripted intent.
-        decision_ms.append(float(Time.get_ticks_usec() - start) / 1000.0)
+        var elapsed_decision := float(Time.get_ticks_usec() - start) / 1000.0
+        decision_ms.append(elapsed_decision)
+        if decision_agents == (1 if duel else team_size):
+            full_decision_ms.append(elapsed_decision)
     for goblin in goblins:
         if not goblin.enabled or goblin.hp <= 0.0:
             goblin.velocity = Vector2.ZERO
@@ -467,8 +473,13 @@ func _process(_delta: float) -> void:
             push_error("Physics rollouts could not be saved")
             get_tree().quit(1)
             return
-        print("PHYSICS_ARENA p95_frame_ms=", percentile(frame_intervals, 0.95), " max_frame_ms=", frame_intervals.max(),
-            " active_agents=", 1 if duel else team_size, " p50_observation_policy_ms=", percentile(decision_ms, 0.5),
+        print("PHYSICS_ARENA p95_frame_ms=", percentile(frame_intervals, 0.95),
+            " p99_frame_ms=", percentile(frame_intervals, 0.99), " max_frame_ms=", frame_intervals.max(),
+            " active_agents=", 1 if duel else team_size, " full_passes=", full_decision_ms.size(),
+            " p50_full_observation_policy_ms=", percentile(full_decision_ms, 0.5) if not full_decision_ms.is_empty() else -1.0,
+            " p95_full_observation_policy_ms=", percentile(full_decision_ms, 0.95) if not full_decision_ms.is_empty() else -1.0,
+            " p99_full_observation_policy_ms=", percentile(full_decision_ms, 0.99) if not full_decision_ms.is_empty() else -1.0,
+            " p50_observation_policy_ms=", percentile(decision_ms, 0.5),
             " p95_observation_policy_ms=", percentile(decision_ms, 0.95),
             " p99_observation_policy_ms=", percentile(decision_ms, 0.99), " legal_violations=", legal_violations,
             " hits_by_policy=", injuries, " modes=", evaluation_modes, " duel=", duel,
@@ -477,8 +488,8 @@ func _process(_delta: float) -> void:
             " noisy_variant=", OS.get_environment("ARENA_NOISY") == "1", " scenario=", "reactive" if reactive else ("novel" if novel else "standard"), " paired_inputs=", paired_inputs,
             " source=", "physics" if physics_policy else "abstract", " policy_variant=", "refined" if refined else "original", " rollouts=", rollouts.size(),
             " persistent_courage=", goblins[0].mind.courage)
-        var total_hits: int = int(injuries.learned) + int(injuries.fixed) + int(injuries.conservative) + int(injuries.authored_fsm)
-        get_tree().quit(1 if legal_violations > 0 or total_hits == 0 else 0)
+        # Zero hits is a valid (if poor) outcome, especially for defensive play.
+        get_tree().quit(1 if legal_violations > 0 else 0)
 
 func _draw() -> void:
     if player == null:
