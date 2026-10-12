@@ -6,6 +6,9 @@ const RADIUS := 12.0
 const ACTION_PERIOD := 0.2
 # Frozen before evaluating this extension. These are disjoint from 222–237 and 29011.
 const HELDOUT_SEEDS := [31001, 31009, 31019, 31033, 31051, 31063, 31069, 31079]
+# Predeclared *new* styles and seeds; neither may enter training. Freeze before tuning.
+const NOVEL_SEEDS := [41011, 41023, 41047, 41059, 41071, 41081, 41093, 41101]
+const NOVEL_STYLES := ["feint", "burst_kite", "orbit_flip", "stop_go"]
 
 class Actor extends CharacterBody2D:
     var mind
@@ -49,6 +52,7 @@ var last_frame_us := 0
 var frame_intervals: Array[float] = []
 var decision_ms: Array[float] = []
 var phases := ["dodge_right", "dodge_left", "rush", "kite"]
+var novel := OS.get_environment("ARENA_NOVEL") == "1"
 var current_phase := -1
 var current_mode := 0
 var evaluation_modes: Array[String] = ["learned", "fixed"]
@@ -77,15 +81,17 @@ func percentile(values: Array[float], fraction: float) -> float:
     return values[clampi(ceili(float(values.size()) * fraction) - 1, 0, values.size() - 1)]
 
 func _ready() -> void:
+    if novel:
+        phases = NOVEL_STYLES.duplicate()
     if OS.get_environment("ARENA_EXTENDED") == "1" and not collecting:
         evaluation_modes.append_array(["conservative", "authored_fsm"])
     if collecting:
-        if duel or OS.get_environment("ARENA_EXTENDED") == "1":
+        if duel or novel or OS.get_environment("ARENA_EXTENDED") == "1":
             push_error("Rollouts require the original ten-goblin, two-team training contract")
             get_tree().quit(1)
             return
         training_seed = maxi(1, OS.get_environment("ARENA_TRAIN_SEED").to_int()) if OS.has_environment("ARENA_TRAIN_SEED") else 222
-        if training_seed in [15137, 29011] or training_seed in HELDOUT_SEEDS or OS.has_environment("ARENA_HELDOUT_SEED") or OS.get_environment("ARENA_EVAL_SEED") == "15137" or OS.get_environment("ARENA_FINAL_SEED") == "29011":
+        if training_seed in [15137, 29011] or training_seed in HELDOUT_SEEDS or training_seed in NOVEL_SEEDS or OS.has_environment("ARENA_HELDOUT_SEED") or OS.get_environment("ARENA_EVAL_SEED") == "15137" or OS.get_environment("ARENA_FINAL_SEED") == "29011":
             push_error("Held-out evaluation seed must not be used for training")
             get_tree().quit(1)
             return
@@ -96,7 +102,7 @@ func _ready() -> void:
         get_tree().quit(1)
         return
     Engine.max_fps = 0 if collecting else 60
-    if OS.has_environment("ARENA_HELDOUT_SEED") and not int(OS.get_environment("ARENA_HELDOUT_SEED")) in HELDOUT_SEEDS:
+    if OS.has_environment("ARENA_HELDOUT_SEED") and not int(OS.get_environment("ARENA_HELDOUT_SEED")) in (NOVEL_SEEDS if novel else HELDOUT_SEEDS):
         push_error("Evaluation seed is not in the predeclared held-out set")
         get_tree().quit(1)
         return
@@ -264,7 +270,7 @@ func _physics_process(delta: float) -> void:
         current_mode = desired_mode
         _reset_phase(desired_phase, new_team)
     var style: String = phases[current_phase]
-    if OS.get_environment("ARENA_NOISY") == "1":
+    if not novel and OS.get_environment("ARENA_NOISY") == "1":
         noise_timer += delta
         if noise_timer >= 0.6:
             noise_timer = 0.0
@@ -282,6 +288,19 @@ func _physics_process(delta: float) -> void:
     var toward := (nearest.position - player.position).normalized()
     var tangent := Vector2(-toward.y, toward.x)
     var player_move := toward if style == "rush" else (-toward if style == "kite" else (tangent if style == "dodge_right" else -tangent))
+    if novel:
+        # New test archetypes, never used to collect training rollouts. Time-dependent
+        # motion is deterministic for each phase and paired team; NPCs see only velocity.
+        var t := fmod(elapsed, 5.0)
+        match style:
+            "feint": player_move = tangent if fmod(t, 0.8) < 0.4 else -tangent
+            "burst_kite": player_move = toward if fmod(t, 1.2) < 0.3 else -toward
+            "orbit_flip": player_move = tangent if int(t / 1.25) % 2 == 0 else -tangent
+            "stop_go": player_move = Vector2.ZERO if fmod(t, 0.8) < 0.25 else toward
+        noise_timer += delta
+        if noise_timer >= ACTION_PERIOD:
+            noise_timer = 0.0
+            observed_styles += ("still" if player_move == Vector2.ZERO else ("rush" if player_move == toward else ("kite" if player_move == -toward else ("right" if player_move == tangent else "left")))) + ","
     player.velocity = player_move * 92.0
     player.move_and_slide()
     decision_timer += delta
@@ -386,7 +405,7 @@ func _process(_delta: float) -> void:
             " hits_by_policy=", injuries, " modes=", evaluation_modes, " duel=", duel,
             " learned_tactics=", tactics, " phase_tactics=", phase_tactics, " phase_hits=", phase_hits,
             " episode_outcomes=", episode_results,
-            " noisy_variant=", OS.get_environment("ARENA_NOISY") == "1", " paired_inputs=", paired_inputs,
+            " noisy_variant=", OS.get_environment("ARENA_NOISY") == "1", " scenario=", "novel" if novel else "standard", " paired_inputs=", paired_inputs,
             " source=", "physics" if physics_policy else "abstract", " rollouts=", rollouts.size(),
             " persistent_courage=", goblins[0].mind.courage)
         var total_hits: int = int(injuries.learned) + int(injuries.fixed) + int(injuries.conservative) + int(injuries.authored_fsm)

@@ -13,6 +13,8 @@ import subprocess
 import sys
 
 SEEDS = (31001, 31009, 31019, 31033, 31051, 31063, 31069, 31079)
+NOVEL_SEEDS = (41011, 41023, 41047, 41059, 41071, 41081, 41093, 41101)
+NOVEL_STYLES = ("feint", "burst_kite", "orbit_flip", "stop_go")
 TEAMS = ("learned", "fixed", "conservative", "authored_fsm")
 STYLES = ("dodge_right", "dodge_left", "rush", "kite")
 
@@ -24,12 +26,13 @@ def field(line, before, after):
     return json.loads(match.group(1))
 
 
-def evaluate(godot, project, seed, duel):
+def evaluate(godot, project, seed, duel, novel=False, refined=False):
     env = os.environ.copy()
     for name in ("ARENA_COLLECT", "ARENA_APPEND", "ARENA_TRAIN_SEED", "ARENA_EVAL_SEED", "ARENA_FINAL_SEED"):
         env.pop(name, None)
     env.update(ARENA_USE_PHYSICS_POLICY="1", ARENA_NOISY="1", ARENA_EXTENDED="1",
-               ARENA_AUTORUN="1", ARENA_DUEL="1" if duel else "0", ARENA_HELDOUT_SEED=str(seed))
+               ARENA_AUTORUN="1", ARENA_DUEL="1" if duel else "0", ARENA_HELDOUT_SEED=str(seed),
+               ARENA_NOVEL="1" if novel else "0", ARENA_REFINED="1" if refined else "0")
     result = subprocess.run([str(godot), "--headless", "--fixed-fps", "240", "--path", str(project),
                              "res://physics_arena.tscn"], env=env, text=True,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30, check=False)
@@ -37,7 +40,7 @@ def evaluate(godot, project, seed, duel):
     if result.returncode or len(lines) != 1 or "legal_violations=0" not in lines[0] or "paired_inputs=true" not in lines[0]:
         raise RuntimeError(f"seed={seed} duel={duel} exit={result.returncode}:\n{result.stdout[-3500:]}")
     line = lines[0]
-    if f"duel={str(duel).lower()}" not in line or "source=physics" not in line:
+    if f"duel={str(duel).lower()}" not in line or "source=physics" not in line or f"scenario={'novel' if novel else 'standard'}" not in line:
         raise ValueError("Wrong evaluation configuration or physics weights unavailable")
     teams = field(line, " modes=", " duel=")
     if teams != list(TEAMS):
@@ -47,8 +50,9 @@ def evaluate(godot, project, seed, duel):
     tactics = field(line, " phase_tactics=", " phase_hits=")
     if len(episodes) != 16:
         raise ValueError(f"Expected 16 paired bouts: {len(episodes)}")
+    styles = NOVEL_STYLES if novel else STYLES
     for index, bout in enumerate(episodes):
-        if bout["style"] != STYLES[index % 4] or bout["team"] != TEAMS[index // 4]:
+        if bout["style"] != styles[index % 4] or bout["team"] != TEAMS[index // 4]:
             raise ValueError("Bout order/identity changed")
         if bout["outcome"] not in ("goblins_win", "player_win", "timeout"):
             raise ValueError("Invalid bout outcome")
@@ -57,7 +61,7 @@ def evaluate(godot, project, seed, duel):
     return {"seed": seed, "duel": duel, "episodes": episodes, "hits": hits, "phase_tactics": tactics}
 
 
-def summarize(runs):
+def summarize(runs, styles=STYLES):
     summary = {}
     for duel in (False, True):
         records = [run for run in runs if run["duel"] == duel]
@@ -72,7 +76,7 @@ def summarize(runs):
                 "damage_to_player": round(sum((3 if duel else 100) - b["player_hp"] for b in bouts), 1),
                 "goblins_defeated": sum(b["goblins_defeated"] for b in bouts),
                 "hits": sum(run["hits"][team] for run in records),
-                "by_style_damage": {style: round(sum((3 if duel else 100) - b["player_hp"] for b in bouts if b["style"] == style), 1) for style in STYLES},
+                "by_style_damage": {style: round(sum((3 if duel else 100) - b["player_hp"] for b in bouts if b["style"] == style), 1) for style in styles},
             }
         summary[category]["learned_beat_fixed_damage_seeds"] = sum(
             sum((3 if duel else 100) - b["player_hp"] for b in run["episodes"] if b["team"] == "learned") >
@@ -81,7 +85,7 @@ def summarize(runs):
         summary[category]["learned_reversal_tactics"] = {
             style: {action: sum(run["phase_tactics"].get(f"{style}_{action}", 0) for run in records)
                     for action in ("pressure", "flank_right", "flank_left", "guard", "retreat")}
-            for style in STYLES[:2]}
+            for style in styles[:2]}
     return summary
 
 
@@ -89,16 +93,20 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--godot", type=Path, required=True, help="Godot 4.4.1 console executable")
     parser.add_argument("--output", type=Path, help="Optional local JSON report, outside Git")
+    parser.add_argument("--novel", action="store_true", help="Use newly frozen, training-excluded player movement archetypes")
+    parser.add_argument("--refined", action="store_true", help="Load a separately trained refined policy, not the previous baseline")
     args = parser.parse_args()
     if not args.godot.is_file():
         parser.error(f"Godot executable missing: {args.godot}")
     project = Path(__file__).resolve().parent
+    seeds = NOVEL_SEEDS if args.novel else SEEDS
     runs = []
     for duel in (False, True):
-        for seed in SEEDS:
-            runs.append(evaluate(args.godot, project, seed, duel))
+        for seed in seeds:
+            runs.append(evaluate(args.godot, project, seed, duel, args.novel, args.refined))
             print(f"paired run ok: seed={seed} duel={duel}", flush=True)
-    report = {"predeclared_heldout_seeds": SEEDS, "summary": summarize(runs), "runs": runs,
+    report = {"predeclared_heldout_seeds": seeds, "scenario": "novel" if args.novel else "standard",
+              "policy": "refined" if args.refined else "original", "summary": summarize(runs, NOVEL_STYLES if args.novel else STYLES), "runs": runs,
               "limitation": "Headless fixed-fps: not rendered-frame timing or main-game evaluation; do not tune to these seeds."}
     print(json.dumps(report["summary"], indent=2))
     if args.output:
