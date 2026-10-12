@@ -33,6 +33,7 @@ class Actor extends CharacterBody2D:
     var last_action := ""
     var last_hp := 0.0
     var last_hits := 0
+    var last_stamina := 5.0
     var diag_pending := {}
 
     func _ready() -> void:
@@ -90,6 +91,7 @@ var starting_slots_hash := ""
 var collecting := OS.get_environment("ARENA_COLLECT") == "1"
 var physics_policy := OS.get_environment("ARENA_USE_PHYSICS_POLICY") == "1"
 var refined := OS.get_environment("ARENA_REFINED") == "1"
+var v3 := OS.get_environment("ARENA_V3") == "1"
 var diagnostic := OS.get_environment("ARENA_DIAGNOSTIC") == "1"
 var diag_rows := []
 var rollouts := []
@@ -108,6 +110,10 @@ func _ready() -> void:
             get_tree().quit(1)
             return
         phases = V3_BLIND_STYLES.duplicate()
+    if v3 and not refined:
+        push_error("V3 requires the refined visible-motion observation base")
+        get_tree().quit(1)
+        return
     if diagnostic:
         var seed_text := OS.get_environment("ARENA_DEV_SEED")
         if not seed_text.is_valid_int() or not seed_text.to_int() in range(700, 708) or collecting or novel or reactive or not refined or not physics_policy or OS.get_environment("ARENA_SINGLE_TEAM") != "learned" or OS.has_environment("ARENA_HELDOUT_SEED") or OS.has_environment("ARENA_FINAL_SEED") or OS.has_environment("ARENA_EVAL_SEED"):
@@ -146,8 +152,8 @@ func _ready() -> void:
             get_tree().quit(1)
             return
         training_seed = maxi(1, OS.get_environment("ARENA_TRAIN_SEED").to_int()) if OS.has_environment("ARENA_TRAIN_SEED") else 222
-        if refined and not training_seed in range(500, 532):
-            push_error("Refined training uses seeds 500–531 only")
+        if refined and not training_seed in (range(800, 832) if v3 else range(500, 532)):
+            push_error("V3 uses training-only seeds 800–831; v2 uses 500–531")
             get_tree().quit(1)
             return
         if training_seed in [15137, 29011] or training_seed in HELDOUT_SEEDS or training_seed in NOVEL_SEEDS or training_seed in ISOLATED_SEEDS or training_seed in REACTIVE_SEEDS or training_seed in V3_BLIND_SEEDS or OS.has_environment("ARENA_HELDOUT_SEED") or OS.get_environment("ARENA_EVAL_SEED") == "15137" or OS.get_environment("ARENA_FINAL_SEED") == "29011":
@@ -155,12 +161,12 @@ func _ready() -> void:
             get_tree().quit(1)
             return
         policy = Core.SharedPolicy.new(training_seed)
-    var artifact := ("user://physics_policy_v3.json" if v3_blind and not blind_dry_run and not blind_v2_baseline else ("user://physics_policy_v2.json" if refined else "user://physics_policy_v1.json")) if physics_policy else "user://adaptive_policy_v1.json"
+    var artifact := ("user://physics_policy_v3.json" if v3 and not blind_dry_run and not blind_v2_baseline else ("user://physics_policy_v2.json" if refined else "user://physics_policy_v1.json")) if physics_policy else "user://adaptive_policy_v1.json"
     if not (collecting and refined) and not policy.load_artifact(artifact) and not collecting:
         push_error("Policy unavailable; train first. Tried: " + artifact)
         get_tree().quit(1)
         return
-    if v3_blind and not blind_dry_run and not blind_v2_baseline:
+    if v3 and not blind_dry_run and not blind_v2_baseline and not collecting:
         if policy.weights.is_empty():
             push_error("Refusing empty v3 blind policy")
             get_tree().quit(1)
@@ -238,8 +244,22 @@ func _finish_transition(goblin: Actor, next_state: String, next_legal: Array, do
     var reward: float = float(dealt) - taken * (0.6 + 0.6 * (1.0 - goblin.mind.courage)) - 0.015
     if done:
         reward += (0.2 * (1.0 - goblin.mind.courage)) if goblin.hp > 0.0 else -0.4
-    rollouts.append({"state": goblin.last_state, "action": goblin.last_action,
-        "reward": reward, "next_state": next_state, "next_legal": next_legal.duplicate(), "done": done})
+    var spent := maxf(0.0, goblin.last_stamina - goblin.stamina)
+    if v3:
+        reward = (1.0 + 0.2 * goblin.mind.ambition) * float(dealt) - (1.1 + 0.6 * (1.0 - goblin.mind.courage)) * taken - 0.04 * spent - 0.015
+        if done:
+            reward += (0.2 * (1.0 - goblin.mind.courage)) if goblin.hp > 0.0 else -0.8
+        reward = clampf(reward, -10.0, 10.0)
+    var row := {"state": goblin.last_state, "action": goblin.last_action,
+        "reward": reward, "next_state": next_state, "next_legal": next_legal.duplicate(), "done": done}
+    if v3:
+        row["dealt"] = dealt
+        row["taken"] = taken
+        row["stamina_spent"] = spent
+        row["courage"] = goblin.mind.courage
+        row["ambition"] = goblin.mind.ambition
+        row["alive"] = goblin.hp > 0.0
+    rollouts.append(row)
     goblin.last_state = ""
 
 func _finish_diagnostic(goblin: Actor, terminal: bool) -> void:
@@ -258,12 +278,12 @@ func _finish_diagnostic(goblin: Actor, terminal: bool) -> void:
 func _save_rollouts() -> bool:
     var all_transitions: Array = rollouts.duplicate()
     var seeds := [training_seed]
-    var path := "user://physics_rollouts_v2.json" if refined else "user://physics_rollouts_v1.json"
+    var path := "user://physics_rollouts_v3.json" if v3 else ("user://physics_rollouts_v2.json" if refined else "user://physics_rollouts_v1.json")
     if OS.get_environment("ARENA_APPEND") == "1":
         if not FileAccess.file_exists(path):
             return false
         var existing = JSON.parse_string(FileAccess.get_file_as_string(path))
-        if not existing is Dictionary or existing.get("version") != 1 or not existing.get("transitions_json") is String or existing.transitions_json.sha256_text() != existing.get("sha256"):
+        if not existing is Dictionary or existing.get("version") != (3 if v3 else 1) or (v3 and existing.get("schema") != "v3-observation-reward-v1") or not existing.get("transitions_json") is String or existing.transitions_json.sha256_text() != existing.get("sha256"):
             return false
         var earlier = JSON.parse_string(existing.transitions_json)
         if not earlier is Array or earlier.size() > 100000 or not existing.get("train_seeds") is Array or existing.train_seeds.has(training_seed):
@@ -277,7 +297,8 @@ func _save_rollouts() -> bool:
     var file := FileAccess.open(path, FileAccess.WRITE)
     if file == null:
         return false
-    file.store_string(JSON.stringify({"version": 1, "train_seeds": seeds, "sha256": text.sha256_text(), "transitions_json": text}))
+    file.store_string(JSON.stringify({"version": 3 if v3 else 1, "schema": "v3-observation-reward-v1" if v3 else "legacy",
+        "train_seeds": seeds, "sha256": text.sha256_text(), "transitions_json": text}))
     file.close()
     return true
 
@@ -338,6 +359,7 @@ func _reset_phase(index: int, new_team: bool = false) -> void:
         actor.last_hits = actor.hits
         actor.diag_pending = {}
         actor.stamina = 5.0
+        actor.last_stamina = actor.stamina
         actor.cooldown = 0.0
         actor.velocity = Vector2.ZERO
         actor.action = "guard"
@@ -433,6 +455,13 @@ func _physics_process(delta: float) -> void:
             "hunt_injured": player_move = toward if nearest.hp <= 2.0 and nearest.action != "guard" else -toward
             "range_control": player_move = -toward if distance <= 90.0 else toward
             "tire_out": player_move = toward if nearest.stamina < 2.0 else tangent
+    if collecting and v3 and current_phase == (2 if training_seed % 2 == 0 else 1):
+        # Training-only adversaries differ from both the frozen blind opponent
+        # and diagnostic cooldown probe; no held-out style label enters state.
+        if training_seed % 2 == 0:
+            player_move = toward if nearest.action in ["pressure", "flank_right", "flank_left"] else tangent
+        else:
+            player_move = -tangent if nearest.hp <= 2.0 else tangent
     if diagnostic and style == "post_attack_lunge":
         # Development-only perturbation: responds to a visible recent lunge,
         # not the frozen held-out stamina-threshold opponent or model weights.
@@ -465,10 +494,16 @@ func _physics_process(delta: float) -> void:
                 legal.append_array(["pressure", "flank_right", "flank_left"])
             var state: String = goblin.mind.observation(goblin.hp <= 3.0, false)
             if refined:
-                # Only authoritative, currently visible velocity and distance; old
-                # memories/traits still pass through Mind's stable save contract.
+                # Authoritative CURRENT motion, relative to this NPC, never the
+                # opponent's scripted name or next move.
                 var distance := goblin.position.distance_to(player.position)
-                state += ":%s:%s" % [cue, "contact" if distance <= 55.0 else ("closing" if distance <= 145.0 else "far")]
+                var motion := "unknown" if v3 and player.velocity.length_squared() < 1225.0 else cue
+                state += ":%s:%s" % [motion, "contact" if distance <= 55.0 else ("closing" if distance <= 145.0 else "far")]
+                if v3:
+                    var stamina_band := "spent" if goblin.stamina < 2.0 else ("fragile" if goblin.stamina < 3.5 else "ready")
+                    var recovery := "recovering" if goblin.cooldown > 0.35 else "available"
+                    var threat := "threat" if distance <= 65.0 and player.velocity.dot(relative) > 35.0 else "safe"
+                    state = "v3:" + state + ":%s:%s:%s" % [stamina_band, recovery, threat]
             if v3_blind and not blind_dry_run and not blind_v2_baseline and not state.begins_with("v3:"):
                 push_error("Refusing blind evaluation until the versioned v3 state is implemented")
                 get_tree().quit(1)
@@ -482,6 +517,7 @@ func _physics_process(delta: float) -> void:
                 goblin.last_state = state
                 goblin.last_hp = goblin.hp
                 goblin.last_hits = goblin.hits
+                goblin.last_stamina = goblin.stamina
             if not legal.has(goblin.action):
                 legal_violations += 1
                 goblin.action = "guard"
@@ -489,7 +525,8 @@ func _physics_process(delta: float) -> void:
                 goblin.last_action = goblin.action
             if diagnostic and goblin.learned:
                 goblin.diag_pending = {"seed": scenario_seed, "phase": phases[current_phase],
-                    "state": state, "cue": cue, "legal": legal.duplicate(), "action": goblin.action,
+                    "state": state, "cue": "unknown" if v3 and player.velocity.length_squared() < 1225.0 else cue,
+                    "legal": legal.duplicate(), "action": goblin.action,
                     "stamina": goblin.stamina, "stamina_band": "spent" if goblin.stamina < 2.0 else "attack_legal",
                     "recovery_seconds": goblin.cooldown, "hp": goblin.hp,
                     "distance": snappedf(goblin.position.distance_to(player.position), 0.1),
@@ -499,7 +536,7 @@ func _physics_process(delta: float) -> void:
                 tactics[goblin.action] = tactics.get(goblin.action, 0) + 1
                 var by_phase: String = "%s_%s" % [phases[current_phase], goblin.action]
                 phase_tactics[by_phase] = phase_tactics.get(by_phase, 0) + 1
-            goblin.mind.observe_player(cue) # After choice; only visible velocity, not the scripted intent.
+            goblin.mind.observe_player("unknown" if v3 and player.velocity.length_squared() < 1225.0 else cue) # After choice; only visible velocity.
         var elapsed_decision := float(Time.get_ticks_usec() - start) / 1000.0
         decision_ms.append(elapsed_decision)
         if decision_agents == (1 if duel else team_size):
@@ -593,7 +630,7 @@ func _process(_delta: float) -> void:
             " learned_tactics=", tactics, " phase_tactics=", phase_tactics, " phase_hits=", phase_hits,
             " episode_outcomes=", episode_results,
             " noisy_variant=", OS.get_environment("ARENA_NOISY") == "1", " scenario=", "v3_blind" if v3_blind else ("reactive" if reactive else ("novel" if novel else "standard")), " paired_inputs=", paired_inputs,
-            " source=", "physics" if physics_policy else "abstract", " policy_variant=", "v3_dry_run" if blind_dry_run else ("v2_blind_baseline" if blind_v2_baseline else ("v3" if v3_blind else ("refined" if refined else "original"))), " rollouts=", rollouts.size(),
+            " source=", "physics" if physics_policy else "abstract", " policy_variant=", "v3_dry_run" if blind_dry_run else ("v2_blind_baseline" if blind_v2_baseline else ("v3" if v3 else ("refined" if refined else "original"))), " rollouts=", rollouts.size(),
             " persistent_courage=", goblins[0].mind.courage)
         # Zero hits is a valid (if poor) outcome, especially for defensive play.
         get_tree().quit(1 if legal_violations > 0 else 0)

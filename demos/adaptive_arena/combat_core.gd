@@ -170,7 +170,10 @@ class SharedPolicy:
             candidate = parsed.weights
         else:
             return false
-        if candidate.size() > 512:
+        # V3's observed recovery/resource/threat dimensions need more bounded
+        # states; older artifacts keep their original 512-state validation gate.
+        var state_limit := 4096 if path.get_file() == "physics_policy_v3.json" else 512
+        if candidate.size() > state_limit:
             return false
         for key in candidate:
             if not key is String or not candidate[key] is Array or candidate[key].size() != 5:

@@ -17,14 +17,14 @@ SEEDS = tuple(range(700, 708))
 ACTIONS = frozenset(("pressure", "flank_right", "flank_left", "guard", "retreat"))
 
 
-def run(godot, project, seed, duel, lunge):
+def run(godot, project, seed, duel, lunge, v3=False):
     env = os.environ.copy()
     for name in tuple(env):
         if name.startswith("ARENA_"):
             env.pop(name)
     env.update(ARENA_DIAGNOSTIC="1", ARENA_DEV_SEED=str(seed), ARENA_DEV_LUNGE=str(int(lunge)),
                ARENA_DUEL=str(int(duel)), ARENA_REFINED="1", ARENA_USE_PHYSICS_POLICY="1",
-               ARENA_SINGLE_TEAM="learned", ARENA_AUTORUN="1", ARENA_AGENTS="10")
+               ARENA_SINGLE_TEAM="learned", ARENA_AUTORUN="1", ARENA_AGENTS="10", ARENA_V3=str(int(v3)))
     result = subprocess.run([str(godot), "--headless", "--fixed-fps", "240", "--path", str(project),
                              "res://physics_arena.tscn"], env=env, text=True, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, timeout=30, check=False)
@@ -33,7 +33,7 @@ def run(godot, project, seed, duel, lunge):
     checks = [line for line in result.stdout.splitlines() if line.startswith("PHYSICS_ARENA ")]
     if result.returncode or len(records) != 1 or len(checks) != 1 or "legal_violations=0" not in checks[0]:
         raise RuntimeError(f"Failed development run {seed=} {duel=} {lunge=}:\n{result.stdout[-1600:]}")
-    if "policy_variant=refined" not in checks[0] or "source=physics" not in checks[0]:
+    if ("policy_variant=v3" if v3 else "policy_variant=refined") not in checks[0] or "source=physics" not in checks[0]:
         raise ValueError("Not the pretrained refined physics policy")
     record = json.loads(records[0])
     if record["version"] != 1 or record["seed"] != seed or record["opponent"] != ("post_attack_lunge" if lunge else "standard_noisy"):
@@ -41,12 +41,13 @@ def run(godot, project, seed, duel, lunge):
     if len(record["outcomes"]) != 4 or not record["rows"] or len(record["rows"]) > 2000:
         raise ValueError("Missing or unbounded diagnostic intervals")
     for row in record["rows"]:
+        parts = row["state"].split(":")
         if (row["seed"] != seed or row["action"] not in ACTIONS or row["action"] not in row["legal"]
-                or len(row["state"].split(":")) != 7 or row["state"].split(":")[-2] != row["cue"]
-                or "post_attack_lunge" in row["state"] or not set(row["legal"]) <= ACTIONS
+                or len(parts) != (11 if v3 else 7) or parts[6 if v3 else 5] != row["cue"]
+                or (v3 and parts[0] != "v3") or "post_attack_lunge" in row["state"] or not set(row["legal"]) <= ACTIONS
                 or not all(math.isfinite(float(row[key])) for key in ("stamina", "recovery_seconds", "hp", "distance", "dealt", "taken", "courage", "ambition"))
                 or not (0 <= row["stamina"] <= 5 and 0 <= row["recovery_seconds"] <= 0.7 and 0 <= row["hp"] <= 4 and 0 <= row["distance"] <= 1200)
-                or row["dealt"] < 0 or row["taken"] < 0 or row["cue"] not in ("rush", "kite", "dodge_right", "dodge_left")):
+                or row["dealt"] < 0 or row["taken"] < 0 or row["cue"] not in ("rush", "kite", "dodge_right", "dodge_left", "unknown")):
             raise ValueError(f"Invalid authoritative diagnostic transition: {row!r}")
         low_mask = len(row["legal"]) == 2
         if row["stamina_band"] != ("spent" if low_mask else "attack_legal"):
@@ -91,6 +92,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--godot", type=Path, required=True)
     parser.add_argument("--output", type=Path, help="Optional raw JSON report outside Git")
+    parser.add_argument("--v3", action="store_true", help="Development-only v3 comparison; never use blind seeds")
     args = parser.parse_args()
     if not args.godot.is_file():
         parser.error("Godot 4.4.1 console executable not found")
@@ -98,9 +100,9 @@ def main():
     for duel in (False, True):
         for lunge in (False, True):
             for seed in SEEDS:
-                runs.append(run(args.godot, Path(__file__).resolve().parent, seed, duel, lunge))
+                runs.append(run(args.godot, Path(__file__).resolve().parent, seed, duel, lunge, args.v3))
                 print(f"dev-only diagnostics ok seed={seed} duel={duel} lunge={lunge}", flush=True)
-    report = {"development_seeds": SEEDS, "policy": "pretrained physics v2, epsilon=0",
+    report = {"development_seeds": SEEDS, "policy": "pretrained physics v3, epsilon=0" if args.v3 else "pretrained physics v2, epsilon=0",
               "caveat": "Stamina-bin associations and one scripted perturbation do not establish causal generalization or predict held-out performance.",
               "summary": summarize(runs), "runs": runs}
     print(json.dumps(report["summary"], indent=2))
