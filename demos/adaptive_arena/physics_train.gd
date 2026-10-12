@@ -6,7 +6,8 @@ func _initialize() -> void:
     call_deferred("run")
 
 func run() -> void:
-    var path := "user://physics_rollouts_v1.json"
+    var refined := OS.get_environment("ARENA_REFINED_TRAIN") == "1"
+    var path := "user://physics_rollouts_v2.json" if refined else "user://physics_rollouts_v1.json"
     if not FileAccess.file_exists(path):
         push_error("Collect physics data first with ARENA_COLLECT=1")
         quit(1)
@@ -16,6 +17,17 @@ func run() -> void:
         push_error("Physics rollout envelope is invalid or corrupted")
         quit(1)
         return
+    if refined:
+        var seeds = envelope.get("train_seeds")
+        if not seeds is Array or seeds.size() != 32:
+            push_error("Refined training requires the full predeclared 500–531 seed set")
+            quit(1)
+            return
+        for i in range(32):
+            if not (seeds[i] is int or seeds[i] is float) or float(seeds[i]) != float(500 + i):
+                push_error("Refined rollout contains an unapproved training seed")
+                quit(1)
+                return
     var observations = JSON.parse_string(envelope.transitions_json)
     if not observations is Array or observations.is_empty() or observations.size() > 100000:
         push_error("Physics rollout payload is empty or too large")
@@ -56,16 +68,17 @@ func run() -> void:
         for row in valid:
             model.learn(row.state, row.action, float(row.reward), row.next_state, row.done, row.next_legal)
     var train_ms := float(Time.get_ticks_usec() - began) / 1000.0
-    if not model.save_artifact("user://physics_policy_v1.json"):
+    var artifact := "user://physics_policy_v2.json" if refined else "user://physics_policy_v1.json"
+    if not model.save_artifact(artifact):
         push_error("Physics policy artifact could not be saved")
         quit(1)
         return
     var reloaded = Core.SharedPolicy.new(93)
-    if not reloaded.load_artifact("user://physics_policy_v1.json") or not reloaded.approximately_equals(model):
+    if not reloaded.load_artifact(artifact) or not reloaded.approximately_equals(model):
         push_error("Physics policy failed the artifact roundtrip")
         quit(1)
         return
     print("PHYSICS_TRAIN transitions=", valid.size(), " distinct_state_actions=", unique_pairs.size(),
         " q_states=", model.weights.size(), " epochs=12 training_ms=", snappedf(train_ms, 0.1),
-        " artifact=user://physics_policy_v1.json (local-only)")
+        " artifact=", artifact, " (local-only)")
     quit()
