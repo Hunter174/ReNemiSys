@@ -3,7 +3,7 @@ extends RefCounted
 # This tabular shared-weight policy is a baseline, not a neural-network or game combat system.
 const ACTIONS := ["pressure", "flank_right", "flank_left", "guard", "retreat"]
 const STYLES := ["rush", "dodge_right", "dodge_left", "kite"]
-const ARTIFACT_VERSION := 1
+const ARTIFACT_VERSION := 2
 
 class Mind:
     var courage: float
@@ -114,32 +114,60 @@ class SharedPolicy:
                 best = action
         return best
 
-    func learn(key: String, action: String, reward: float, next_key: String, done: bool) -> void:
+    func learn(key: String, action: String, reward: float, next_key: String, done: bool, next_legal: Array = ["pressure", "flank_right", "flank_left", "guard", "retreat"]) -> void:
         var index := ["pressure", "flank_right", "flank_left", "guard", "retreat"].find(action)
         if index < 0:
             return
         var q: Array = values(key)
-        var target := reward + (0.0 if done else 0.85 * float(values(next_key).max()))
+        var next_best := 0.0
+        if not done:
+            var available := []
+            for next_action in next_legal:
+                var next_index := ["pressure", "flank_right", "flank_left", "guard", "retreat"].find(next_action)
+                if next_index >= 0:
+                    available.append(float(values(next_key)[next_index]))
+            if not available.is_empty():
+                next_best = available.max()
+        var target := reward + (0.0 if done else 0.85 * next_best)
         q[index] = clampf(float(q[index]) + 0.18 * (target - float(q[index])), -100.0, 100.0)
 
     func save_artifact(path: String) -> bool:
         var payload := JSON.stringify(weights)
+        if payload.length() > 262144:
+            return false
         var file := FileAccess.open(path, FileAccess.WRITE)
         if file == null:
             return false
-        file.store_string(JSON.stringify({"version": 1, "actions": ["pressure", "flank_right", "flank_left", "guard", "retreat"],
-            "sha256": payload.sha256_text(), "weights": weights}))
+        # Hash exact bytes, not re-stringified JSON numbers (which can round on parse).
+        file.store_string(JSON.stringify({"version": 2, "actions": ["pressure", "flank_right", "flank_left", "guard", "retreat"],
+            "sha256": payload.sha256_text(), "weights_json": payload}))
         file.close()
         return true
 
     func load_artifact(path: String) -> bool:
         if not FileAccess.file_exists(path):
             return false
-        var parsed = JSON.parse_string(FileAccess.get_file_as_string(path))
-        if not parsed is Dictionary or parsed.get("version") != 1 or parsed.get("actions") != ["pressure", "flank_right", "flank_left", "guard", "retreat"] or not parsed.get("weights") is Dictionary:
+        var file := FileAccess.open(path, FileAccess.READ)
+        if file == null or file.get_length() > 280000:
             return false
-        var candidate: Dictionary = parsed.weights
-        if candidate.size() > 128 or JSON.stringify(candidate).sha256_text() != parsed.get("sha256"):
+        var parsed = JSON.parse_string(file.get_as_text())
+        if not parsed is Dictionary or parsed.get("actions") != ["pressure", "flank_right", "flank_left", "guard", "retreat"]:
+            return false
+        var candidate: Dictionary
+        if parsed.get("version") == 2:
+            if not parsed.get("weights_json") is String or parsed.weights_json.length() > 262144 or parsed.weights_json.sha256_text() != parsed.get("sha256"):
+                return false
+            var data = JSON.parse_string(parsed.weights_json)
+            if not data is Dictionary:
+                return false
+            candidate = data
+        elif parsed.get("version") == 1: # Existing local development artifacts only.
+            if not parsed.get("weights") is Dictionary or JSON.stringify(parsed.weights).sha256_text() != parsed.get("sha256"):
+                return false
+            candidate = parsed.weights
+        else:
+            return false
+        if candidate.size() > 512:
             return false
         for key in candidate:
             if not key is String or not candidate[key] is Array or candidate[key].size() != 5:
@@ -148,6 +176,17 @@ class SharedPolicy:
                 if not (value is float or value is int) or not is_finite(float(value)) or absf(float(value)) > 100.0:
                     return false
         weights = candidate
+        return true
+
+    func approximately_equals(other: SharedPolicy, tolerance: float = 0.00001) -> bool:
+        if weights.size() != other.weights.size():
+            return false
+        for key in weights:
+            if not other.weights.has(key):
+                return false
+            for i in range(5):
+                if absf(float(weights[key][i]) - float(other.weights[key][i])) > tolerance:
+                    return false
         return true
 
 # This toy arena computes consequences; neither the agent nor an LLM declares hits.

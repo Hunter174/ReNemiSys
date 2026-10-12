@@ -15,6 +15,10 @@ class Actor extends CharacterBody2D:
     var learned := true
     var enabled := true
     var hits := 0
+    var last_state := ""
+    var last_action := ""
+    var last_hp := 0.0
+    var last_hits := 0
 
     func _ready() -> void:
         var shape := CollisionShape2D.new()
@@ -54,18 +58,34 @@ var noise_timer := 0.0
 var noisy_style := "dodge_right"
 var episode_results := []
 var final_recorded := false
+var observed_styles := ""
+var starting_slots_hash := ""
+var collecting := OS.get_environment("ARENA_COLLECT") == "1"
+var physics_policy := OS.get_environment("ARENA_USE_PHYSICS_POLICY") == "1"
+var rollouts := []
+var placement_rng := RandomNumberGenerator.new()
+var training_seed := 222
+var scenario_seed := 991
 
 func percentile(values: Array[float], fraction: float) -> float:
     values.sort()
     return values[clampi(ceili(float(values.size()) * fraction) - 1, 0, values.size() - 1)]
 
 func _ready() -> void:
-    if not policy.load_artifact("user://adaptive_policy_v1.json"):
-        push_error("Train first with --headless --script res://arena_check.gd")
+    if collecting:
+        training_seed = maxi(1, OS.get_environment("ARENA_TRAIN_SEED").to_int()) if OS.has_environment("ARENA_TRAIN_SEED") else 222
+        if training_seed in [15137, 29011] or OS.get_environment("ARENA_EVAL_SEED") == "15137" or OS.get_environment("ARENA_FINAL_SEED") == "29011":
+            push_error("Held-out evaluation seed must not be used for training")
+            get_tree().quit(1)
+            return
+        policy = Core.SharedPolicy.new(training_seed)
+    var artifact := "user://physics_policy_v1.json" if physics_policy else "user://adaptive_policy_v1.json"
+    if not policy.load_artifact(artifact) and not collecting:
+        push_error("Policy unavailable; train first. Tried: " + artifact)
         get_tree().quit(1)
         return
-    Engine.max_fps = 60
-    noise_rng.seed = 991
+    Engine.max_fps = 0 if collecting else 60
+    scenario_seed = training_seed if collecting else (29011 if OS.get_environment("ARENA_FINAL_SEED") == "29011" else (15137 if OS.get_environment("ARENA_EVAL_SEED") == "15137" else 991))
     _wall(Vector2(480, 0), Vector2(960, 22))
     _wall(Vector2(480, 600), Vector2(960, 22))
     _wall(Vector2(0, 300), Vector2(22, 600))
@@ -101,19 +121,79 @@ func _wall(center: Vector2, size: Vector2) -> void:
 func _record_phase() -> void:
     if current_phase < 0:
         return
+    if collecting:
+        for goblin in goblins:
+            if goblin.enabled and goblin.learned:
+                _finish_transition(goblin, goblin.last_state, [], true)
     var fallen := 0
     for goblin in goblins:
         if goblin.enabled and goblin.hp <= 0.0:
             fallen += 1
     episode_results.append({"style": phases[current_phase], "team": "learned" if current_mode == 0 else "fixed",
-        "player_hp": snappedf(player.hp, 0.1), "goblins_defeated": fallen})
+        "player_hp": snappedf(player.hp, 0.1), "goblins_defeated": fallen,
+        "opponent_trace": observed_styles.sha256_text(), "starts": starting_slots_hash})
+
+func _finish_transition(goblin: Actor, next_state: String, next_legal: Array, done: bool) -> void:
+    if goblin.last_state.is_empty():
+        return
+    var dealt := maxi(0, goblin.hits - goblin.last_hits)
+    var taken := maxf(0.0, goblin.last_hp - goblin.hp)
+    # Authoritative hit/health deltas from physics, not the scripted opponent label.
+    var reward: float = float(dealt) - taken * (0.6 + 0.6 * (1.0 - goblin.mind.courage)) - 0.015
+    if done:
+        reward += (0.2 * (1.0 - goblin.mind.courage)) if goblin.hp > 0.0 else -0.4
+    rollouts.append({"state": goblin.last_state, "action": goblin.last_action,
+        "reward": reward, "next_state": next_state, "next_legal": next_legal.duplicate(), "done": done})
+    goblin.last_state = ""
+
+func _save_rollouts() -> bool:
+    var all_transitions: Array = rollouts.duplicate()
+    var seeds := [training_seed]
+    var path := "user://physics_rollouts_v1.json"
+    if OS.get_environment("ARENA_APPEND") == "1":
+        if not FileAccess.file_exists(path):
+            return false
+        var existing = JSON.parse_string(FileAccess.get_file_as_string(path))
+        if not existing is Dictionary or existing.get("version") != 1 or not existing.get("transitions_json") is String or existing.transitions_json.sha256_text() != existing.get("sha256"):
+            return false
+        var earlier = JSON.parse_string(existing.transitions_json)
+        if not earlier is Array or earlier.size() > 100000 or not existing.get("train_seeds") is Array or existing.train_seeds.has(training_seed):
+            return false
+        seeds = existing.train_seeds.duplicate()
+        seeds.append(training_seed)
+        all_transitions = earlier + rollouts
+    if all_transitions.size() > 100000:
+        return false
+    var text := JSON.stringify(all_transitions)
+    var file := FileAccess.open(path, FileAccess.WRITE)
+    if file == null:
+        return false
+    file.store_string(JSON.stringify({"version": 1, "train_seeds": seeds, "sha256": text.sha256_text(), "transitions_json": text}))
+    file.close()
+    return true
 
 func _reset_phase(index: int) -> void:
     current_phase = index
+    # Rewind the opponent and placement streams at each paired phase. Both teams
+    # see the SAME seeded style schedule and ten starting slots, not sequential RNG draws.
+    noise_rng.seed = scenario_seed + index * 1013
+    placement_rng.seed = scenario_seed + index * 1009
     player.position = Vector2(480, 300)
+    player.velocity = Vector2.ZERO
     player.hp = 100.0
     player.stamina = 5.0
     player.cooldown = 0.0
+    attack_timer = 0.0
+    var starts: Array[Vector2] = []
+    var starts_text := ""
+    observed_styles = ""
+    for slot in range(10):
+        var position := Vector2(175 + (slot % 5) * 150, 220 + (slot / 5) * 140)
+        if collecting or OS.get_environment("ARENA_EVAL_SEED") == "15137" or OS.get_environment("ARENA_FINAL_SEED") == "29011":
+            position += Vector2(placement_rng.randi_range(-28, 28), placement_rng.randi_range(-22, 22))
+        starts.append(position)
+        starts_text += "%.1f,%.1f|" % [position.x, position.y]
+    starting_slots_hash = starts_text.sha256_text()
     for i in range(goblins.size()):
         var actor: Actor = goblins[i]
         var local_index := i % 10
@@ -121,10 +201,15 @@ func _reset_phase(index: int) -> void:
         actor.collision_layer = 2 if actor.enabled else 0
         actor.collision_mask = 7 if actor.enabled else 0
         actor.attack_area.monitoring = actor.enabled
-        actor.position = Vector2(175 + (local_index % 5) * 150, 220 + (local_index / 5) * 140) if actor.enabled else Vector2(-2000, -2000)
+        actor.position = starts[local_index] if actor.enabled else Vector2(-2000, -2000)
         actor.hp = 4.0
+        actor.last_state = ""
+        actor.last_action = ""
+        actor.last_hp = actor.hp
+        actor.last_hits = actor.hits
         actor.stamina = 5.0
         actor.cooldown = 0.0
+        actor.velocity = Vector2.ZERO
         actor.action = "guard"
     decision_timer = 0.0
     noise_timer = 1.0 # Force a new, seeded observable style at the phase boundary.
@@ -151,6 +236,7 @@ func _physics_process(delta: float) -> void:
             noise_timer = 0.0
             var alternative := "dodge_left" if style == "dodge_right" else ("dodge_right" if style == "dodge_left" else ("kite" if style == "rush" else "rush"))
             noisy_style = style if noise_rng.randf() < 0.8 else alternative
+            observed_styles += noisy_style + ","
         style = noisy_style
     var nearest: Actor = goblins[0] if current_mode == 0 else goblins[10]
     for goblin in goblins:
@@ -174,10 +260,19 @@ func _physics_process(delta: float) -> void:
             var legal := ["guard", "retreat"]
             if goblin.stamina >= 2.0:
                 legal.append_array(["pressure", "flank_right", "flank_left"])
-            goblin.action = policy.select(goblin.mind.observation(goblin.hp <= 3.0, false), legal) if goblin.learned else ("pressure" if legal.has("pressure") else "guard")
+            var state: String = goblin.mind.observation(goblin.hp <= 3.0, false)
+            if collecting and goblin.learned:
+                _finish_transition(goblin, state, legal, goblin.hp <= 0.0)
+            goblin.action = policy.select(state, legal, 0.55 if collecting else 0.0) if goblin.learned else ("pressure" if legal.has("pressure") else "guard")
+            if collecting and goblin.learned:
+                goblin.last_state = state
+                goblin.last_hp = goblin.hp
+                goblin.last_hits = goblin.hits
             if not legal.has(goblin.action):
                 legal_violations += 1
                 goblin.action = "guard"
+            if collecting and goblin.learned:
+                goblin.last_action = goblin.action
             if goblin.learned:
                 tactics[goblin.action] = tactics.get(goblin.action, 0) + 1
             goblin.mind.observe_player(cue) # After choice; only visible velocity, not the scripted intent.
@@ -217,8 +312,10 @@ func _physics_process(delta: float) -> void:
     attack_timer += delta
     if attack_timer >= 0.7:
         attack_timer = 0.0
-        for target in player.attack_area.get_overlapping_bodies():
-            if target is Actor and target.hp > 0.0 and target.action != "guard":
+        var overlaps: Array[Node2D] = player.attack_area.get_overlapping_bodies()
+        # Stable priority independent of physics-server overlap iteration order.
+        for target in goblins:
+            if target.enabled and overlaps.has(target) and target.hp > 0.0 and target.action != "guard":
                 target.hp = maxf(0.0, target.hp - 1.0)
                 injuries.player += 1
                 break
@@ -229,7 +326,19 @@ func _process(_delta: float) -> void:
     if last_frame_us != 0:
         frame_intervals.append(float(now - last_frame_us) / 1000.0)
     last_frame_us = now
-    if elapsed >= 40.0 and final_recorded and OS.get_environment("ARENA_AUTORUN") == "1":
+    if elapsed >= 40.0 and final_recorded and (OS.get_environment("ARENA_AUTORUN") == "1" or collecting):
+        var paired_inputs := episode_results.size() == 8
+        if paired_inputs:
+            for phase in range(4):
+                paired_inputs = paired_inputs and episode_results[phase].starts == episode_results[phase + 4].starts and episode_results[phase].opponent_trace == episode_results[phase + 4].opponent_trace
+        if not paired_inputs:
+            push_error("Paired fights used different starting positions or opponent style schedules")
+            get_tree().quit(1)
+            return
+        if collecting and not _save_rollouts():
+            push_error("Physics rollouts could not be saved")
+            get_tree().quit(1)
+            return
         print("PHYSICS_ARENA p95_frame_ms=", percentile(frame_intervals, 0.95), " max_frame_ms=", frame_intervals.max(),
             " p50_10_active_decision_ms=", percentile(decision_ms, 0.5),
             " p95_10_active_decision_ms=", percentile(decision_ms, 0.95),
@@ -237,7 +346,8 @@ func _process(_delta: float) -> void:
             " learned_hits=", injuries.learned, " fixed_hits=", injuries.fixed, " player_hits=", injuries.player,
             " learned_tactics=", tactics, " phase_hits=", phase_hits,
             " episode_outcomes=", episode_results,
-            " noisy_variant=", OS.get_environment("ARENA_NOISY") == "1",
+            " noisy_variant=", OS.get_environment("ARENA_NOISY") == "1", " paired_inputs=", paired_inputs,
+            " source=" , "physics" if physics_policy else "abstract", " rollouts=", rollouts.size(),
             " persistent_courage=", goblins[0].mind.courage)
         get_tree().quit(1 if legal_violations > 0 or injuries.learned + injuries.fixed == 0 else 0)
 
