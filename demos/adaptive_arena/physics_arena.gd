@@ -77,6 +77,13 @@ var current_mode := 0
 var evaluation_modes: Array[String] = ["learned", "fixed"]
 var duel := OS.get_environment("ARENA_DUEL") == "1"
 var legal_violations := 0
+var timeout_fallbacks := 0
+var stale_fallbacks := 0
+var budgeted_bursts := 0
+var frame_budget_enabled := OS.has_environment("ARENA_FRAME_BUDGET_MS")
+var frame_budget_ms: float = maxf(0.0, float(OS.get_environment("ARENA_FRAME_BUDGET_MS"))) if frame_budget_enabled else INF
+var fake_slow_us := maxi(0, OS.get_environment("ARENA_FAKE_SLOW_US").to_int())
+var fake_stale := OS.get_environment("ARENA_FORCE_STALE") == "1"
 var injuries := {"learned": 0, "fixed": 0, "conservative": 0, "authored_fsm": 0, "player": 0}
 var tactics := {}
 var phase_tactics := {}
@@ -136,6 +143,10 @@ func _ready() -> void:
             push_error("ARENA_AGENTS must be 8, 10 or 20")
             get_tree().quit(1)
             return
+    if (frame_budget_enabled or fake_slow_us > 0 or fake_stale) and (collecting or diagnostic or v3_blind or OS.get_environment("ARENA_SINGLE_TEAM") != "learned" or team_size != 20 or OS.has_environment("ARENA_HELDOUT_SEED")):
+        push_error("Synthetic budget/revision injection is development-only and requires a 20-agent learned team")
+        get_tree().quit(1)
+        return
     if OS.get_environment("ARENA_EXTENDED") == "1" and not collecting:
         evaluation_modes.append_array(["conservative", "authored_fsm"])
     if OS.has_environment("ARENA_SINGLE_TEAM"):
@@ -482,10 +493,20 @@ func _physics_process(delta: float) -> void:
         decision_timer = 0.0
         var start := Time.get_ticks_usec()
         var decision_agents := 0
+        var revision_at_start := 0
+        var game_revision := 0
+        var injected_delay := false
         for goblin in goblins:
             if not goblin.enabled or goblin.hp <= 0.0:
                 continue
             decision_agents += 1
+            if fake_stale and decision_agents == 5:
+                game_revision += 1 # Synthetic game-owned fact revision, after prior choices.
+            if not injected_delay and fake_slow_us > 0:
+                injected_delay = true
+                var stall_until := Time.get_ticks_usec() + fake_slow_us
+                while Time.get_ticks_usec() < stall_until:
+                    pass # Test only: emulate a synchronous backend that cannot be cancelled.
             var relative := (goblin.position - player.position).normalized()
             var side := Vector2(-relative.y, relative.x)
             var cue := "rush" if player.velocity.dot(relative) > 35.0 else ("kite" if player.velocity.dot(relative) < -35.0 else ("dodge_right" if player.velocity.dot(side) > 0.0 else "dodge_left"))
@@ -538,6 +559,27 @@ func _physics_process(delta: float) -> void:
                 phase_tactics[by_phase] = phase_tactics.get(by_phase, 0) + 1
             goblin.mind.observe_player("unknown" if v3 and player.velocity.length_squared() < 1225.0 else cue) # After choice; only visible velocity.
         var elapsed_decision := float(Time.get_ticks_usec() - start) / 1000.0
+        if frame_budget_enabled or fake_stale:
+            var stale := game_revision != revision_at_start
+            var expired := frame_budget_enabled and elapsed_decision > frame_budget_ms
+            budgeted_bursts += 1
+            if stale or expired:
+                for actor in goblins:
+                    if actor.enabled and actor.hp > 0.0:
+                        # Atomic rejection: NONE of this burst's old choices execute.
+                        if actor.action != "guard" and actor.learned:
+                            tactics[actor.action] -= 1
+                            tactics["guard"] = tactics.get("guard", 0) + 1
+                            var old_phase_key: String = "%s_%s" % [phases[current_phase], actor.action]
+                            phase_tactics[old_phase_key] -= 1
+                            var guard_key: String = "%s_guard" % phases[current_phase]
+                            phase_tactics[guard_key] = phase_tactics.get(guard_key, 0) + 1
+                        actor.action = "guard" # Always present in the game-owned mask.
+                        if stale:
+                            stale_fallbacks += 1
+                        else:
+                            timeout_fallbacks += 1
+        elapsed_decision = float(Time.get_ticks_usec() - start) / 1000.0
         decision_ms.append(elapsed_decision)
         if decision_agents == (1 if duel else team_size):
             full_decision_ms.append(elapsed_decision)
@@ -626,6 +668,9 @@ func _process(_delta: float) -> void:
             " p50_observation_policy_ms=", percentile(decision_ms, 0.5),
             " p95_observation_policy_ms=", percentile(decision_ms, 0.95),
             " p99_observation_policy_ms=", percentile(decision_ms, 0.99), " legal_violations=", legal_violations,
+            " budgeted_bursts=", budgeted_bursts, " timeout_fallbacks=", timeout_fallbacks,
+            " stale_fallbacks=", stale_fallbacks,
+            " godot_static_mem_mib=", snappedf(float(Performance.get_monitor(Performance.MEMORY_STATIC)) / 1048576.0, 0.1),
             " hits_by_policy=", injuries, " modes=", evaluation_modes, " duel=", duel,
             " learned_tactics=", tactics, " phase_tactics=", phase_tactics, " phase_hits=", phase_hits,
             " episode_outcomes=", episode_results,
