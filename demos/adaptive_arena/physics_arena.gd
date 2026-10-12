@@ -30,6 +30,7 @@ class Actor extends CharacterBody2D:
     var last_action := ""
     var last_hp := 0.0
     var last_hits := 0
+    var diag_pending := {}
 
     func _ready() -> void:
         var shape := CollisionShape2D.new()
@@ -82,6 +83,8 @@ var starting_slots_hash := ""
 var collecting := OS.get_environment("ARENA_COLLECT") == "1"
 var physics_policy := OS.get_environment("ARENA_USE_PHYSICS_POLICY") == "1"
 var refined := OS.get_environment("ARENA_REFINED") == "1"
+var diagnostic := OS.get_environment("ARENA_DIAGNOSTIC") == "1"
+var diag_rows := []
 var rollouts := []
 var placement_rng := RandomNumberGenerator.new()
 var training_seed := 222
@@ -92,6 +95,14 @@ func percentile(values: Array[float], fraction: float) -> float:
     return values[clampi(ceili(float(values.size()) * fraction) - 1, 0, values.size() - 1)]
 
 func _ready() -> void:
+    if diagnostic:
+        var seed_text := OS.get_environment("ARENA_DEV_SEED")
+        if not seed_text.is_valid_int() or not seed_text.to_int() in range(700, 708) or collecting or novel or reactive or not refined or not physics_policy or OS.get_environment("ARENA_SINGLE_TEAM") != "learned" or OS.has_environment("ARENA_HELDOUT_SEED") or OS.has_environment("ARENA_FINAL_SEED") or OS.has_environment("ARENA_EVAL_SEED"):
+            push_error("Diagnostics require refined inference, one learned team and development seeds 700–707 only")
+            get_tree().quit(1)
+            return
+        if OS.get_environment("ARENA_DEV_LUNGE") == "1":
+            phases = ["dodge_right", "dodge_left", "post_attack_lunge", "kite"]
     if novel and reactive:
         push_error("Select only one evaluation opponent")
         get_tree().quit(1)
@@ -142,7 +153,7 @@ func _ready() -> void:
         push_error("Evaluation seed is not in the predeclared held-out set")
         get_tree().quit(1)
         return
-    scenario_seed = training_seed if collecting else (int(OS.get_environment("ARENA_HELDOUT_SEED")) if OS.has_environment("ARENA_HELDOUT_SEED") else (29011 if OS.get_environment("ARENA_FINAL_SEED") == "29011" else (15137 if OS.get_environment("ARENA_EVAL_SEED") == "15137" else 991)))
+    scenario_seed = OS.get_environment("ARENA_DEV_SEED").to_int() if diagnostic else (training_seed if collecting else (int(OS.get_environment("ARENA_HELDOUT_SEED")) if OS.has_environment("ARENA_HELDOUT_SEED") else (29011 if OS.get_environment("ARENA_FINAL_SEED") == "29011" else (15137 if OS.get_environment("ARENA_EVAL_SEED") == "15137" else 991))))
     _wall(Vector2(480, 0), Vector2(960, 22))
     _wall(Vector2(480, 600), Vector2(960, 22))
     _wall(Vector2(0, 300), Vector2(22, 600))
@@ -178,10 +189,13 @@ func _wall(center: Vector2, size: Vector2) -> void:
 func _record_phase() -> void:
     if current_phase < 0:
         return
-    if collecting:
+    if collecting or diagnostic:
         for goblin in goblins:
             if goblin.enabled and goblin.learned:
-                _finish_transition(goblin, goblin.last_state, [], true)
+                if collecting:
+                    _finish_transition(goblin, goblin.last_state, [], true)
+                if diagnostic:
+                    _finish_diagnostic(goblin, true)
     var fallen := 0
     for goblin in goblins:
         if goblin.enabled and goblin.hp <= 0.0:
@@ -204,6 +218,19 @@ func _finish_transition(goblin: Actor, next_state: String, next_legal: Array, do
     rollouts.append({"state": goblin.last_state, "action": goblin.last_action,
         "reward": reward, "next_state": next_state, "next_legal": next_legal.duplicate(), "done": done})
     goblin.last_state = ""
+
+func _finish_diagnostic(goblin: Actor, terminal: bool) -> void:
+    if goblin.diag_pending.is_empty():
+        return
+    var row: Dictionary = goblin.diag_pending.duplicate()
+    row["dealt"] = maxi(0, goblin.hits - row.hit_baseline)
+    row["taken"] = maxf(0.0, row.hp_baseline - goblin.hp)
+    row["terminal"] = terminal or goblin.hp <= 0.0
+    row.erase("hit_baseline")
+    row.erase("hp_baseline")
+    if diag_rows.size() < 2000:
+        diag_rows.append(row)
+    goblin.diag_pending = {}
 
 func _save_rollouts() -> bool:
     var all_transitions: Array = rollouts.duplicate()
@@ -284,6 +311,7 @@ func _reset_phase(index: int, new_team: bool = false) -> void:
         actor.last_action = ""
         actor.last_hp = actor.hp
         actor.last_hits = actor.hits
+        actor.diag_pending = {}
         actor.stamina = 5.0
         actor.cooldown = 0.0
         actor.velocity = Vector2.ZERO
@@ -355,6 +383,10 @@ func _physics_process(delta: float) -> void:
             "hunt_injured": player_move = toward if nearest.hp <= 2.0 and nearest.action != "guard" else -toward
             "range_control": player_move = -toward if distance <= 90.0 else toward
             "tire_out": player_move = toward if nearest.stamina < 2.0 else tangent
+    if diagnostic and style == "post_attack_lunge":
+        # Development-only perturbation: responds to a visible recent lunge,
+        # not the frozen held-out stamina-threshold opponent or model weights.
+        player_move = toward if nearest.cooldown > 0.35 and nearest.action in ["pressure", "flank_right", "flank_left"] else tangent
     if novel:
         # New test archetypes, never used to collect training rollouts. Time-dependent
         # motion is deterministic for each phase and paired team; NPCs see only velocity.
@@ -389,6 +421,8 @@ func _physics_process(delta: float) -> void:
                 state += ":%s:%s" % [cue, "contact" if distance <= 55.0 else ("closing" if distance <= 145.0 else "far")]
             if collecting and goblin.learned:
                 _finish_transition(goblin, state, legal, goblin.hp <= 0.0)
+            if diagnostic and goblin.learned:
+                _finish_diagnostic(goblin, goblin.hp <= 0.0)
             goblin.action = policy.select(state, legal, (0.8 if refined else 0.55) if collecting else 0.0) if goblin.learned else _baseline_action(goblin, legal)
             if collecting and goblin.learned:
                 goblin.last_state = state
@@ -399,6 +433,14 @@ func _physics_process(delta: float) -> void:
                 goblin.action = "guard"
             if collecting and goblin.learned:
                 goblin.last_action = goblin.action
+            if diagnostic and goblin.learned:
+                goblin.diag_pending = {"seed": scenario_seed, "phase": phases[current_phase],
+                    "state": state, "cue": cue, "legal": legal.duplicate(), "action": goblin.action,
+                    "stamina": goblin.stamina, "stamina_band": "spent" if goblin.stamina < 2.0 else "attack_legal",
+                    "recovery_seconds": goblin.cooldown, "hp": goblin.hp,
+                    "distance": snappedf(goblin.position.distance_to(player.position), 0.1),
+                    "courage": goblin.mind.courage, "ambition": goblin.mind.ambition,
+                    "hit_baseline": goblin.hits, "hp_baseline": goblin.hp}
             if goblin.learned:
                 tactics[goblin.action] = tactics.get(goblin.action, 0) + 1
                 var by_phase: String = "%s_%s" % [phases[current_phase], goblin.action]
@@ -473,6 +515,17 @@ func _process(_delta: float) -> void:
             push_error("Physics rollouts could not be saved")
             get_tree().quit(1)
             return
+        if diagnostic:
+            for i in range(goblins.size()):
+                var expected: float = 0.2 if i % 2 == 0 else 0.8
+                var mind = goblins[i].mind
+                if not is_equal_approx(mind.courage, expected) or not is_equal_approx(mind.ambition, expected) or not mind.seen_events.is_empty():
+                    push_error("Inference or diagnostics changed persistent identity/epiphany ledger")
+                    get_tree().quit(1)
+                    return
+            print("V3_DIAGNOSTIC ", JSON.stringify({"version": 1, "seed": scenario_seed,
+                "opponent": "post_attack_lunge" if OS.get_environment("ARENA_DEV_LUNGE") == "1" else "standard_noisy",
+                "rows": diag_rows, "outcomes": episode_results}))
         print("PHYSICS_ARENA p95_frame_ms=", percentile(frame_intervals, 0.95),
             " p99_frame_ms=", percentile(frame_intervals, 0.99), " max_frame_ms=", frame_intervals.max(),
             " active_agents=", 1 if duel else team_size, " full_passes=", full_decision_ms.size(),
