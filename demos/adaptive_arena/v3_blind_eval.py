@@ -54,17 +54,27 @@ def run(godot, project, seed, duel, team, dry_run, baseline_v2):
         raise ValueError("Another policy ran in the same process")
     bouts = field(line, " episode_outcomes=", " noisy_variant=")
     hits = field(line, " hits_by_policy=", " modes=")[team]
+    phase_tactics = field(line, " phase_tactics=", " phase_hits=")
+    phase_hits = field(line, " phase_hits=", " phase_spent_samples=")
+    spent_samples = field(line, " phase_spent_samples=", " episode_outcomes=")
+    if any(not isinstance(count, int) or count < 0 for counts in (phase_tactics, phase_hits, spent_samples)
+           for count in counts.values()):
+        raise ValueError("Invalid per-phase game observation counters")
     if len(bouts) != 4 or any(b["style"] != STYLES[i] or b["team"] != team for i, b in enumerate(bouts)):
         raise ValueError("Expected four phase snapshots of ONE continuous bout")
     if any(b["outcome"] not in ("goblins_win", "player_win", "timeout") for b in bouts):
         raise ValueError("Invalid win/loss/timeout")
     for before, after in zip(bouts, bouts[1:]):
-        if after["player_hp"] > before["player_hp"] or after["goblins_defeated"] < before["goblins_defeated"]:
+        if (after["player_hp"] > before["player_hp"] or after["goblins_defeated"] < before["goblins_defeated"]
+                or after["low_stamina_deaths"] < before["low_stamina_deaths"]):
             raise ValueError("Long-bout HP/deaths must not reset between phases")
+    if any(not 0 <= bout["low_stamina_deaths"] <= bout["goblins_defeated"] for bout in bouts):
+        raise ValueError("Low-stamina death must coincide with an authoritative defeat")
     if not 0 <= bouts[-1]["player_hp"] <= (3 if duel else 100):
         raise ValueError("Invalid final player HP")
     return {"team": team, "seed": seed, "duel": duel, "phase_snapshots": bouts,
-            "final": bouts[-1], "hits": hits}
+            "final": bouts[-1], "hits": hits, "phase_tactics": phase_tactics,
+            "phase_hits": phase_hits, "phase_spent_samples": spent_samples}
 
 
 def evaluate(godot, project, seeds, dry_run, baseline_v2):
@@ -95,6 +105,12 @@ def summarize(runs):
                 "timeouts": sum(r["final"]["outcome"] == "timeout" for r in rows),
                 "hits": sum(r["hits"] for r in rows),
                 "goblins_defeated": sum(r["final"]["goblins_defeated"] for r in rows),
+                "low_stamina_deaths": sum(r["final"]["low_stamina_deaths"] for r in rows),
+                "per_phase_spent_samples": {style: sum(r["phase_spent_samples"].get(style, 0) for r in rows)
+                                            for style in STYLES},
+                "per_phase_actions": {style: {action: sum(r["phase_tactics"].get(f"{style}_{action}", 0) for r in rows)
+                                               for action in ("guard", "retreat", "pressure", "flank_left", "flank_right")}
+                                      for style in STYLES},
                 "per_phase_damage": {style: sum(((3 if duel else 100) if i == 0 else r["phase_snapshots"][i-1]["player_hp"]) -
                                                 r["phase_snapshots"][i]["player_hp"] for r in rows)
                                      for i, style in enumerate(STYLES)},

@@ -122,6 +122,8 @@ var crowd_second_max_progress := 0.0
 var crowd_second_escape_time := -1.0
 var overlap_violations := 0
 var max_pair_penetration_px := 0.0
+var low_stamina_deaths := 0 # Low stamina AT lethal hit, not proof it caused the death.
+var phase_spent_samples := {}
 var diag_rows := []
 var rollouts := []
 var placement_rng := RandomNumberGenerator.new()
@@ -282,6 +284,8 @@ func _record_phase() -> void:
     var record := {"style": phases[current_phase], "team": evaluation_modes[current_mode],
         "player_hp": snappedf(player.hp, 0.1), "goblins_defeated": fallen, "outcome": outcome,
         "opponent_trace": observed_styles.sha256_text(), "starts": starting_slots_hash}
+    if v3_blind:
+        record["low_stamina_deaths"] = low_stamina_deaths
     if crowd_dev and crowd_case != "natural":
         record["egress_px"] = snappedf(crowd_max_progress, 0.1)
         record["escape_time_s"] = snappedf(crowd_escape_time, 0.01) if crowd_escape_time >= 0.0 else -1.0
@@ -696,6 +700,9 @@ func _physics_process(delta: float) -> void:
             if diagnostic and goblin.learned:
                 _finish_diagnostic(goblin, goblin.hp <= 0.0)
             goblin.action = policy.select(state, legal, (0.8 if refined else 0.55) if collecting else 0.0) if goblin.learned else _baseline_action(goblin, legal)
+            if v3_blind and goblin.stamina < 2.0:
+                var spent_key: String = phases[current_phase]
+                phase_spent_samples[spent_key] = phase_spent_samples.get(spent_key, 0) + 1
             if crowd_dev and crowd_case != "natural":
                 # Authored physical obstruction exercise, NOT a learned-policy win.
                 goblin.action = "retreat" if goblin.actor_id == 0 or (crowd_case == "multiple" and goblin.actor_id == 2) else "guard"
@@ -818,6 +825,8 @@ func _physics_process(delta: float) -> void:
         for target in goblins:
             if target.enabled and overlaps.has(target) and target.hp > 0.0 and (target.action != "guard" or (crowd_dev and target.yield_until > elapsed)):
                 target.hp = maxf(0.0, target.hp - 1.0)
+                if v3_blind and target.hp <= 0.0 and target.stamina < 2.0:
+                    low_stamina_deaths += 1
                 injuries.player += 1
                 break
     queue_redraw()
@@ -871,7 +880,7 @@ func _process(_delta: float) -> void:
             " godot_static_mem_mib=", snappedf(float(Performance.get_monitor(Performance.MEMORY_STATIC)) / 1048576.0, 0.1),
             " hits_by_policy=", injuries, " modes=", evaluation_modes, " duel=", duel,
             " learned_tactics=", tactics, " phase_tactics=", phase_tactics, " phase_hits=", phase_hits,
-            " episode_outcomes=", episode_results,
+            " phase_spent_samples=", phase_spent_samples, " episode_outcomes=", episode_results,
             " noisy_variant=", OS.get_environment("ARENA_NOISY") == "1", " scenario=", "v3_blind" if v3_blind else ("reactive" if reactive else ("novel" if novel else "standard")), " paired_inputs=", paired_inputs,
             " source=", "physics" if physics_policy else "abstract", " policy_variant=", "v3_dry_run" if blind_dry_run else ("v2_blind_baseline" if blind_v2_baseline else ("v3" if v3 else ("refined" if refined else "original"))), " rollouts=", rollouts.size(),
             " persistent_courage=", goblins[0].mind.courage)
