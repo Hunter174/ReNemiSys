@@ -58,7 +58,23 @@ func run() -> void:
     check(not coward.apply_epiphany({"kind": "epiphany", "id": "offer", "courage_delta": 0.2}, true, true), "Ordinary fight may not change traits")
     check(coward.apply_epiphany({"kind": "epiphany", "id": "offer", "courage_delta": 0.2}, true, true, true), "Authorized mid-fight epiphany must apply")
     check(not coward.apply_epiphany({"kind": "epiphany", "id": "offer", "courage_delta": 0.2}, true, true, true), "Duplicate epiphany must not repeat")
-    check(coward.courage > original_courage, "Epiphany must be durable")
+    check(coward.courage > original_courage, "Epiphany must change the lasting trait")
+    var save_path := "user://goblin_personality_v1.json"
+    var save_file := FileAccess.open(save_path, FileAccess.WRITE)
+    check(save_file != null, "Goblin save file must open")
+    if save_file != null:
+        save_file.store_string(JSON.stringify(coward.snapshot()))
+        save_file.close()
+    var restored = Core.Mind.new(0.8, 0.8)
+    var save_data = JSON.parse_string(FileAccess.get_file_as_string(save_path))
+    check(save_data is Dictionary and restored.restore(save_data), "Goblin trait and memory must reload")
+    check(restored.courage == coward.courage and restored.ambition == coward.ambition and
+        restored.player_belief() == coward.player_belief(), "Traits and encounter memory must survive reload")
+    check(not restored.apply_epiphany({"kind": "epiphany", "id": "offer", "courage_delta": 0.2}, true, false),
+        "Already-applied epiphany must stay idempotent after reload")
+    var old_courage: float = restored.courage
+    check(not restored.restore({"version": 1, "courage": -1, "ambition": 0.5, "player_moves": [], "seen_epiphanies": []}) and restored.courage == old_courage,
+        "Malformed trait snapshot must fail without mutating the agent")
 
     var scout = Core.Mind.new(0.8, 0.8)
     for n in range(5):

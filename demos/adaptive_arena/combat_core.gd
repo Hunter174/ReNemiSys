@@ -49,6 +49,38 @@ class Mind:
         courage = clampf(courage + delta, 0.0, 1.0)
         return true
 
+    # Game-owned save snapshot. An untrusted LLM must never call restore() or edit the ledger.
+    func snapshot() -> Dictionary:
+        return {"version": 1, "courage": courage, "ambition": ambition,
+            "player_moves": player_moves.duplicate(), "seen_epiphanies": seen_events.keys()}
+
+    func restore(record: Dictionary) -> bool:
+        if record.get("version") != 1 or not (record.get("courage") is float or record.get("courage") is int) or not (record.get("ambition") is float or record.get("ambition") is int):
+            return false
+        var c := float(record.courage)
+        var a := float(record.ambition)
+        if not is_finite(c) or not is_finite(a) or c < 0.0 or c > 1.0 or a < 0.0 or a > 1.0:
+            return false
+        var moves = record.get("player_moves")
+        var events = record.get("seen_epiphanies")
+        if not moves is Array or moves.size() > 5 or not events is Array or events.size() > 128:
+            return false
+        var validated_moves: Array[String] = []
+        var validated_events := {}
+        for move in moves:
+            if not move is String or not move in ["rush", "dodge_right", "dodge_left", "kite"]:
+                return false
+            validated_moves.append(move)
+        for id in events:
+            if not id is String or id.is_empty() or id.length() > 128 or validated_events.has(id):
+                return false
+            validated_events[id] = true
+        courage = c
+        ambition = a
+        player_moves = validated_moves
+        seen_events = validated_events
+        return true
+
     func observation(low_health: bool, tough_enemy: bool) -> String:
         return "%s:%d:%d:%d:%d" % [player_belief(), int(low_health), int(tough_enemy), int(courage >= 0.5), int(ambition >= 0.5)]
 
