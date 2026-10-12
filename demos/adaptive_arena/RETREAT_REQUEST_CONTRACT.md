@@ -1,0 +1,30 @@
+# Development-only retreat requests (ReNemiSys #13, IN PROGRESS)
+
+**Not a group-contagion mechanic.** A retreating actor requests assistance from the nearest ally obstructing its outward path. That ally may consent to a short, game-authorized sidestep or refuse; when it refuses, the requester may take a separately collision-checked sideways counter-route or guard. A refusal does not magically revoke an independently legal route. At most two local hops propagate a *space request*, not another actor's fear or policy weights. No SaLMon/LLM call, network wait, persistent trait change, new epiphany or per-character model is involved. The existing v3 combat policy still proposes ordinary tactics; authored, inspectable recipient utility provides the snap response. Parameters in `retreat_coordination.gd` are untuned authored values; #14 owns any future offline search.
+
+The request contains stable actor ID, recipient ID, current game revision, next-decision-tick expiry, and outward vector. Recipient decisions use its visible HP, current action/commitment, courage and distance to player as *inputs*, never modify them. A low-HP or tactically committed ally can refuse. A proposal to yield contains collision-checked targets for up to two allies; Godot checks the live actors, legal response, wall bounds and unique reservations **again**, then applies the entire plan or none. The temporary move ends after 0.36s or death/unload/revision invalidation. Godot physics resolves real `CharacterBody2D` collisions; there is no teleport through friends, enemies or walls. A stale/expired answer is rejected, leaving the requester with a legal guard. Request/response runs synchronously on the next 0.2s action update, not in an LLM queue; fast response is not guaranteed under arbitrarily blocking game code.
+
+## Isolation / reproduction
+
+`ARENA_CROWD_DEV=1 ARENA_CROWD_CASE=approve ARENA_DEV_SEED=900 ARENA_V3=1 ARENA_REFINED=1 ARENA_USE_PHYSICS_POLICY=1 ARENA_SINGLE_TEAM=learned ARENA_AGENTS=10 ARENA_AUTORUN=1 ARENA_RETREAT_REQUESTS=1 Godot-4.4.1 --path demos/adaptive_arena --rendering-method gl_compatibility res://physics_arena.tscn`
+
+Change `ARENA_RETREAT_REQUESTS=0` for the paired dogpile. Cases: `approve`, `deny`, `counter`, `relay`, `edge`, `multiple`, `death`, `unload`, and `natural`; only development seeds **900–907** are allowed. Scripted fixtures freeze the player and force a legal retreat/guard intent to isolate actual movement—NOT learned combat success. `natural` uses unchanged v3 policy proposals and moving player, and is only a development comparison. Neither mode can collect weights, use diagnostics, open the frozen 610xx blind suite, run on other teams or modify the main game. The frozen #4 movement contract remains opt-out; changed movement needs a *different* blind protocol before any generalization claim.
+
+Run:
+
+- `Godot-4.4.1 --headless --path demos/adaptive_arena --script res://retreat_request_check.gd` (six pure contract cases: consent, two-hop relay, refusal, counter, wall, stale/expired revision).
+- `python demos/adaptive_arena/retreat_physics_check.py --godot /path/to/Godot_v4.4.1-stable_win64_console.exe` (15 real physics cases, including 8/10/20 actors, scripted collision obstruction, both simultaneous requesters, death/unload and forced stale/expiry). Uses accelerated headless `--fixed-fps 240` for functional checks **only**, not rendered timing. All 15 passed with **zero** >1px goblin overlaps in these controlled fixtures. Baseline center egress: **1.0 px**, no escape; consent-enabled 8/10/20: **413.4 px**, first 30px escape at **0.60s**. Rational denial and wall: 0px, no unauthorized push; alternative route: first 30px by 0.63s; two-hop relay: first 30px by 0.60s; both simultaneous requesters escape. Death/unload each cancel four in-progress movement plans; stale and expiry inject 92 rejected requests each, 0 unauthorized yields.
+
+## Rendered CPU and actual-fight caveats
+
+One local Godot 4.4.1 CPU **rendered** 20s run per fixture count/mode; numbers are full-active observation + shared policy + request/response p50/p95/p99 **milliseconds**, with frame interval p95/p99. Static Godot memory monitor was 27.0 MiB (8), 27.1 MiB (10), 27.6 MiB (20), not process peak RSS.
+
+| Actors | Consent off, action p50/p95/p99 | Consent on, action p50/p95/p99 | Frame p95/p99 off -> on |
+| --- | --- | --- | --- |
+| 8 | 0.204 / 0.352 / 0.671 | 0.284 / 0.512 / 0.938 | 17.131 / 17.675 -> 17.095 / 17.679 |
+| 10 | 0.226 / 0.299 / 0.377 | 0.329 / 0.591 / 1.450 | 17.108 / 18.003 -> 17.148 / 18.056 |
+| 20 | 0.409 / 0.641 / 0.823 | 0.578 / 0.921 / 1.181 | 17.360 / 18.098 -> 17.387 / 18.143 |
+
+92 full-active action passes per run. One **earlier** enabled rendered set was 8/10/20 p99 **1.024 / 3.455 / 2.416 ms**, and the newer 10-agent run had a **32.617ms maximum frame** despite its 18.056ms p99. These are small development samples, **not a hard CPU deadline**; merely hoisting synthetic-test environment reads does not explain every host/GC scheduling outlier. More rendered trials and overload work are required before considering a production gate.
+
+Eight previously opened **development-only** natural 10-agent seeds (900–907), fresh processes for each mode and an identical authored moving-opponent schedule: consent off **798 player damage / 4 goblin defeats**; consent on **848 player damage / 6 goblin defeats**. Requests with consent on: 3 approvals, 170 refusals, 10 counters, 193 unobstructed exits. Thus the scripted egress success did **not** establish better natural group survival; some individual seeds lost damage or more goblins. More critically, ordinary Godot `CharacterBody2D` fights have residual >1px body penetration **even with coordination disabled**: 219 body-pair/frame samples off (maximum 1.77px) and 72 on (maximum 1.80px). Scripted cases had zero. This existing solver/crowd issue and the natural survival tradeoff remain open in #13; neither is a proven collision-free/main-game result. Do not tune #14 to these opened seeds or evaluate coordination on 610xx.

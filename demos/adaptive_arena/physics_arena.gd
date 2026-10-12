@@ -2,6 +2,7 @@ extends Node2D
 # Isolated combat integration: real Godot physics bodies + overlap-based hits.
 # It does NOT alter the existing ReNemiSys main game. The shared policy never trains here.
 const Core = preload("res://combat_core.gd")
+const RetreatPlanner = preload("res://retreat_coordination.gd")
 const RADIUS := 12.0
 const ACTION_PERIOD := 0.2
 # Frozen before evaluating this extension. These are disjoint from 222–237 and 29011.
@@ -35,6 +36,10 @@ class Actor extends CharacterBody2D:
     var last_hits := 0
     var last_stamina := 5.0
     var diag_pending := {}
+    var actor_id := -1
+    var yield_direction := Vector2.ZERO
+    var yield_until := 0.0
+    var retreat_route := Vector2.ZERO
 
     func _ready() -> void:
         var shape := CollisionShape2D.new()
@@ -100,6 +105,23 @@ var physics_policy := OS.get_environment("ARENA_USE_PHYSICS_POLICY") == "1"
 var refined := OS.get_environment("ARENA_REFINED") == "1"
 var v3 := OS.get_environment("ARENA_V3") == "1"
 var diagnostic := OS.get_environment("ARENA_DIAGNOSTIC") == "1"
+var crowd_dev := OS.get_environment("ARENA_CROWD_DEV") == "1"
+var consent_enabled := OS.get_environment("ARENA_RETREAT_REQUESTS") == "1"
+var crowd_case := OS.get_environment("ARENA_CROWD_CASE")
+var crowd_inject_stale := OS.get_environment("ARENA_CROWD_STALE") == "1"
+var crowd_inject_expiry := OS.get_environment("ARENA_CROWD_EXPIRE") == "1"
+var retreat_planner = RetreatPlanner.new()
+var request_revision := 0
+var request_tick := 0
+var request_counts := {"yield": 0, "deny": 0, "counter": 0, "clear": 0, "invalid": 0, "expired": 0, "conflicts": 0, "cancelled": 0}
+var crowd_initial_distance := 0.0
+var crowd_max_progress := 0.0
+var crowd_escape_time := -1.0
+var crowd_second_initial_distance := 0.0
+var crowd_second_max_progress := 0.0
+var crowd_second_escape_time := -1.0
+var overlap_violations := 0
+var max_pair_penetration_px := 0.0
 var diag_rows := []
 var rollouts := []
 var placement_rng := RandomNumberGenerator.new()
@@ -111,6 +133,16 @@ func percentile(values: Array[float], fraction: float) -> float:
     return values[clampi(ceili(float(values.size()) * fraction) - 1, 0, values.size() - 1)]
 
 func _ready() -> void:
+    if (crowd_inject_stale or crowd_inject_expiry) and not crowd_dev:
+        push_error("Crowd revision and expiry injection are forbidden outside the isolated development fixture")
+        get_tree().quit(1)
+        return
+    if crowd_dev or consent_enabled:
+        var dev_seed := OS.get_environment("ARENA_DEV_SEED")
+        if not crowd_dev or not dev_seed.is_valid_int() or not dev_seed.to_int() in range(900, 908) or not crowd_case in ["approve", "deny", "counter", "edge", "multiple", "relay", "natural", "death", "unload"] or collecting or diagnostic or v3_blind or novel or reactive or duel or not v3 or not refined or not physics_policy or OS.get_environment("ARENA_SINGLE_TEAM") != "learned" or OS.has_environment("ARENA_HELDOUT_SEED") or frame_budget_enabled or fake_stale or fake_slow_us > 0:
+            push_error("Consent tests require isolated crowd fixtures and development seeds 900–907 only")
+            get_tree().quit(1)
+            return
     if v3_blind:
         if collecting or diagnostic or novel or reactive or not physics_policy or not refined or (OS.get_environment("ARENA_V3") != "1" and not blind_dry_run and not blind_v2_baseline) or (int(blind_dry_run) + int(blind_v2_baseline) + int(OS.get_environment("ARENA_V3") == "1")) != 1 or not OS.has_environment("ARENA_SINGLE_TEAM") or not long_bout or (blind_dry_run and (OS.has_environment("ARENA_HELDOUT_SEED") or OS.get_environment("ARENA_DEV_SEED") != "700")) or (not blind_dry_run and not OS.has_environment("ARENA_HELDOUT_SEED")):
             push_error("Blind v3 requires immutable v3 inference and a single long-bout team")
@@ -143,6 +175,10 @@ func _ready() -> void:
             push_error("ARENA_AGENTS must be 8, 10 or 20")
             get_tree().quit(1)
             return
+    if crowd_dev and not team_size in [8, 10, 20]:
+        push_error("Crowd development fixture requires 8, 10, or 20 actors")
+        get_tree().quit(1)
+        return
     if (frame_budget_enabled or fake_slow_us > 0 or fake_stale) and (collecting or diagnostic or v3_blind or OS.get_environment("ARENA_SINGLE_TEAM") != "learned" or team_size != 20 or OS.has_environment("ARENA_HELDOUT_SEED")):
         push_error("Synthetic budget/revision injection is development-only and requires a 20-agent learned team")
         get_tree().quit(1)
@@ -193,7 +229,7 @@ func _ready() -> void:
         push_error("Evaluation seed is not in the predeclared held-out set")
         get_tree().quit(1)
         return
-    scenario_seed = OS.get_environment("ARENA_DEV_SEED").to_int() if diagnostic or blind_dry_run else (training_seed if collecting else (int(OS.get_environment("ARENA_HELDOUT_SEED")) if OS.has_environment("ARENA_HELDOUT_SEED") else (29011 if OS.get_environment("ARENA_FINAL_SEED") == "29011" else (15137 if OS.get_environment("ARENA_EVAL_SEED") == "15137" else 991))))
+    scenario_seed = OS.get_environment("ARENA_DEV_SEED").to_int() if diagnostic or blind_dry_run or crowd_dev else (training_seed if collecting else (int(OS.get_environment("ARENA_HELDOUT_SEED")) if OS.has_environment("ARENA_HELDOUT_SEED") else (29011 if OS.get_environment("ARENA_FINAL_SEED") == "29011" else (15137 if OS.get_environment("ARENA_EVAL_SEED") == "15137" else 991))))
     _wall(Vector2(480, 0), Vector2(960, 22))
     _wall(Vector2(480, 600), Vector2(960, 22))
     _wall(Vector2(0, 300), Vector2(22, 600))
@@ -207,6 +243,7 @@ func _ready() -> void:
     for i in range(team_size * 2):
         var goblin := Actor.new()
         goblin.learned = i < team_size
+        goblin.actor_id = i
         goblin.collision_layer = 2
         goblin.collision_mask = 7
         goblin.mind = Core.Mind.new(0.2 if i % 2 == 0 else 0.8, 0.2 if i % 2 == 0 else 0.8)
@@ -242,9 +279,17 @@ func _record_phase() -> void:
             fallen += 1
     var participants := 1 if duel else team_size
     var outcome := "goblins_win" if player.hp <= 0.0 else ("player_win" if fallen >= participants else "timeout")
-    episode_results.append({"style": phases[current_phase], "team": evaluation_modes[current_mode],
+    var record := {"style": phases[current_phase], "team": evaluation_modes[current_mode],
         "player_hp": snappedf(player.hp, 0.1), "goblins_defeated": fallen, "outcome": outcome,
-        "opponent_trace": observed_styles.sha256_text(), "starts": starting_slots_hash})
+        "opponent_trace": observed_styles.sha256_text(), "starts": starting_slots_hash}
+    if crowd_dev and crowd_case != "natural":
+        record["egress_px"] = snappedf(crowd_max_progress, 0.1)
+        record["escape_time_s"] = snappedf(crowd_escape_time, 0.01) if crowd_escape_time >= 0.0 else -1.0
+        record["stuck"] = crowd_escape_time < 0.0
+        if crowd_case == "multiple":
+            record["second_egress_px"] = snappedf(crowd_second_max_progress, 0.1)
+            record["second_escape_time_s"] = snappedf(crowd_second_escape_time, 0.01) if crowd_second_escape_time >= 0.0 else -1.0
+    episode_results.append(record)
 
 func _finish_transition(goblin: Actor, next_state: String, next_legal: Array, done: bool) -> void:
     if goblin.last_state.is_empty():
@@ -374,8 +419,110 @@ func _reset_phase(index: int, new_team: bool = false) -> void:
         actor.cooldown = 0.0
         actor.velocity = Vector2.ZERO
         actor.action = "guard"
+        actor.yield_direction = Vector2.ZERO
+        actor.yield_until = 0.0
+        actor.retreat_route = Vector2.ZERO
+    if crowd_dev and crowd_case != "natural":
+        _reset_crowd_fixture()
     decision_timer = 0.0
     noise_timer = 1.0 # Force a new, seeded observable style at the phase boundary.
+
+func _reset_crowd_fixture() -> void:
+    # Dedicated 900–907 development fixtures. Scripted intentions isolate movement
+    # egress; their scores are NEVER evidence of learned combat or blind quality.
+    request_revision += 1
+    request_tick = 0
+    player.position = Vector2(850, 300) if crowd_case == "edge" else Vector2(480, 300)
+    for actor in goblins:
+        if not actor.enabled:
+            continue
+        var slot := actor.actor_id
+        actor.position = Vector2(150 + (slot % 5) * 140, 430 + int(slot / 5) * 34)
+    goblins[0].position = Vector2(908, 300) if crowd_case == "edge" else Vector2(530, 300)
+    goblins[1].position = Vector2(935, 300) if crowd_case == "edge" else Vector2(555, 300)
+    if crowd_case in ["deny", "counter"]:
+        goblins[1].hp = 1.0 # A recipient may rationally refuse to expose itself.
+    if crowd_case == "deny":
+        goblins[3].position = Vector2(530, 332)
+        goblins[4].position = Vector2(530, 268)
+    if crowd_case == "multiple":
+        goblins[2].position = Vector2(530, 390)
+        goblins[3].position = Vector2(555, 390)
+    if crowd_case == "relay":
+        goblins[2].position = Vector2(555, 332)
+        goblins[3].position = Vector2(555, 268)
+    var text := ""
+    for actor in goblins:
+        if actor.enabled:
+            text += "%.1f,%.1f|" % [actor.position.x, actor.position.y]
+    starting_slots_hash = text.sha256_text()
+    crowd_initial_distance = player.position.distance_to(goblins[0].position)
+    crowd_max_progress = 0.0
+    crowd_escape_time = -1.0
+    crowd_second_initial_distance = player.position.distance_to(goblins[2].position) if crowd_case == "multiple" else 0.0
+    crowd_second_max_progress = 0.0
+    crowd_second_escape_time = -1.0
+
+func _resolve_crowd_requests() -> void:
+    request_tick += 1
+    var peers: Array = []
+    for actor in goblins:
+        if actor.enabled and actor.hp > 0.0:
+            peers.append({"id": actor.actor_id, "position": actor.position, "hp": actor.hp,
+                "stamina": actor.stamina, "courage": actor.mind.courage, "action": actor.action})
+            actor.retreat_route = Vector2.ZERO
+    var reserved: Array[Vector2] = []
+    for actor in goblins:
+        if not actor.enabled or actor.hp <= 0.0 or actor.action != "retreat":
+            continue
+        var sender := {"id": actor.actor_id, "position": actor.position, "hp": actor.hp,
+            "stamina": actor.stamina, "courage": actor.mind.courage, "action": actor.action}
+        var reply: Dictionary = retreat_planner.negotiate(sender, peers, player.position, Rect2(0, 0, 960, 600), request_revision, request_tick)
+        if crowd_inject_stale:
+            request_revision += 1 # Synthetic authoritative revision change BEFORE receipt.
+            for previous in goblins:
+                previous.yield_until = elapsed # Revoke previously approved stale plans.
+        if crowd_inject_expiry:
+            request_tick += 1 # Synthetic delayed response, no blocking async wait.
+        if not retreat_planner.valid_response(reply, request_revision, request_tick, actor.actor_id):
+            if reply.expires_tick <= request_tick:
+                request_counts.expired += 1
+            else:
+                request_counts.invalid += 1
+            actor.action = "guard"
+            continue
+        var status: String = reply.status
+        if status == "yield":
+            # Approvals are proposals. The game checks current actors and unique
+            # slots before authorizing the whole batch; no partially forced yield.
+            var legal_plan: bool = not reply.plans.is_empty() and reply.plans.size() <= 2
+            var batch_targets: Array[Vector2] = []
+            for plan in reply.plans:
+                var recipient_id: int = plan.id
+                if recipient_id < 0 or recipient_id >= team_size:
+                    legal_plan = false
+                    break
+                var recipient: Actor = goblins[recipient_id]
+                if not recipient.enabled or recipient.hp <= 0.0 or recipient.action == "retreat" or recipient.position.distance_to(plan.target) > 36.01 or not Rect2(24, 24, 912, 552).has_point(plan.target):
+                    legal_plan = false
+                for target in reserved + batch_targets:
+                    if target.distance_to(plan.target) < 25.0:
+                        legal_plan = false
+                batch_targets.append(plan.target)
+            if not legal_plan:
+                request_counts.conflicts += 1
+                status = "deny"
+            else:
+                for plan in reply.plans:
+                    var recipient: Actor = goblins[plan.id]
+                    recipient.yield_direction = plan.direction
+                    recipient.yield_until = elapsed + 0.36
+                    reserved.append(plan.target)
+        if status == "deny" or status == "invalid":
+            actor.action = "guard" # Request cannot override a refusal or wall.
+        elif status == "counter" or status == "clear":
+            actor.retreat_route = reply.route # Only the requester chooses its route.
+        request_counts[status] = request_counts.get(status, 0) + 1
 
 func _advance_blind_phase(index: int) -> void:
     # Continuing fight: preserve HP, stamina, position, per-agent beliefs and
@@ -477,6 +624,21 @@ func _physics_process(delta: float) -> void:
         # Development-only perturbation: responds to a visible recent lunge,
         # not the frozen held-out stamina-threshold opponent or model weights.
         player_move = toward if nearest.cooldown > 0.35 and nearest.action in ["pressure", "flank_right", "flank_left"] else tangent
+    if crowd_dev and crowd_case in ["death", "unload"] and phase_elapsed >= 0.26 and goblins[1].enabled and goblins[1].hp > 0.0:
+        # Invalidate an in-flight cooperation plan when its recipient leaves.
+        var recipient: Actor = goblins[1]
+        if recipient.yield_until > elapsed:
+            request_counts.cancelled += 1
+        recipient.yield_until = elapsed
+        recipient.hp = 0.0
+        recipient.action = "guard"
+        recipient.collision_layer = 0
+        recipient.collision_mask = 0
+        recipient.attack_area.monitoring = false
+        if crowd_case == "unload":
+            recipient.enabled = false
+            recipient.position = Vector2(-2000, -2000)
+        request_revision += 1
     if novel:
         # New test archetypes, never used to collect training rollouts. Time-dependent
         # motion is deterministic for each phase and paired team; NPCs see only velocity.
@@ -486,7 +648,7 @@ func _physics_process(delta: float) -> void:
             "burst_kite": player_move = toward if fmod(t, 1.2) < 0.3 else -toward
             "orbit_flip": player_move = tangent if int(t / 1.25) % 2 == 0 else -tangent
             "stop_go": player_move = Vector2.ZERO if fmod(t, 0.8) < 0.25 else toward
-    player.velocity = player_move * 92.0
+    player.velocity = Vector2.ZERO if crowd_dev and crowd_case != "natural" else player_move * 92.0
     player.move_and_slide()
     decision_timer += delta
     if decision_timer >= ACTION_PERIOD:
@@ -534,6 +696,9 @@ func _physics_process(delta: float) -> void:
             if diagnostic and goblin.learned:
                 _finish_diagnostic(goblin, goblin.hp <= 0.0)
             goblin.action = policy.select(state, legal, (0.8 if refined else 0.55) if collecting else 0.0) if goblin.learned else _baseline_action(goblin, legal)
+            if crowd_dev and crowd_case != "natural":
+                # Authored physical obstruction exercise, NOT a learned-policy win.
+                goblin.action = "retreat" if goblin.actor_id == 0 or (crowd_case == "multiple" and goblin.actor_id == 2) else "guard"
             if collecting and goblin.learned:
                 goblin.last_state = state
                 goblin.last_hp = goblin.hp
@@ -558,6 +723,8 @@ func _physics_process(delta: float) -> void:
                 var by_phase: String = "%s_%s" % [phases[current_phase], goblin.action]
                 phase_tactics[by_phase] = phase_tactics.get(by_phase, 0) + 1
             goblin.mind.observe_player("unknown" if v3 and player.velocity.length_squared() < 1225.0 else cue) # After choice; only visible velocity.
+        if crowd_dev and consent_enabled:
+            _resolve_crowd_requests()
         var elapsed_decision := float(Time.get_ticks_usec() - start) / 1000.0
         if frame_budget_enabled or fake_stale:
             var stale := game_revision != revision_at_start
@@ -586,17 +753,25 @@ func _physics_process(delta: float) -> void:
     for goblin in goblins:
         if not goblin.enabled or goblin.hp <= 0.0:
             goblin.velocity = Vector2.ZERO
+            if crowd_dev and goblin.hp <= 0.0:
+                goblin.collision_layer = 0
+                goblin.collision_mask = 0
+                goblin.attack_area.monitoring = false
+                goblin.yield_until = elapsed
             continue
         goblin.stamina = minf(5.0, goblin.stamina + delta * 1.0)
         goblin.cooldown = maxf(0.0, goblin.cooldown - delta)
         var to_player := (player.position - goblin.position).normalized()
         var side := Vector2(-to_player.y, to_player.x)
-        match goblin.action:
-            "pressure": goblin.velocity = to_player * 108.0
-            "flank_right": goblin.velocity = (to_player + side * 0.3).normalized() * 112.0
-            "flank_left": goblin.velocity = (to_player - side * 0.3).normalized() * 112.0
-            "retreat": goblin.velocity = -to_player * 115.0
-            _: goblin.velocity = Vector2.ZERO
+        if crowd_dev and goblin.yield_until > elapsed:
+            goblin.velocity = goblin.yield_direction * 115.0
+        else:
+            match goblin.action:
+                "pressure": goblin.velocity = to_player * 108.0
+                "flank_right": goblin.velocity = (to_player + side * 0.3).normalized() * 112.0
+                "flank_left": goblin.velocity = (to_player - side * 0.3).normalized() * 112.0
+                "retreat": goblin.velocity = goblin.retreat_route * 115.0 if crowd_dev and not goblin.retreat_route.is_zero_approx() else -to_player * 115.0
+                _: goblin.velocity = Vector2.ZERO
         goblin.move_and_slide()
         # The animation/physics velocity and overlap decide whether the attack connects,
         # not the NPC's claim about what the player intended to do.
@@ -606,7 +781,7 @@ func _physics_process(delta: float) -> void:
             goblin.action == "flank_right" and lateral < -25.0) or (
             goblin.action == "flank_left" and lateral > 25.0) or (
             goblin.action == "guard" and advancing > 35.0)
-        if connects and goblin.cooldown == 0.0 and goblin.attack_area.get_overlapping_bodies().has(player) and (not v3_blind or player.hp > 0.0):
+        if connects and (not crowd_dev or goblin.yield_until <= elapsed) and goblin.cooldown == 0.0 and goblin.attack_area.get_overlapping_bodies().has(player) and (not v3_blind or player.hp > 0.0):
             if goblin.action == "guard" or goblin.stamina >= 2.0:
                 goblin.stamina -= 0.0 if goblin.action == "guard" else 2.0
                 goblin.cooldown = 0.7
@@ -615,13 +790,33 @@ func _physics_process(delta: float) -> void:
                 injuries[evaluation_modes[current_mode]] += 1
                 var phase_key: String = "%s_%s" % [phases[current_phase], evaluation_modes[current_mode]]
                 phase_hits[phase_key] = phase_hits.get(phase_key, 0) + 1
+    if crowd_dev and crowd_case != "natural":
+        var gained := player.position.distance_to(goblins[0].position) - crowd_initial_distance
+        crowd_max_progress = maxf(crowd_max_progress, gained)
+        if crowd_escape_time < 0.0 and gained >= 30.0:
+            crowd_escape_time = phase_elapsed
+        if crowd_case == "multiple":
+            var second_gained := player.position.distance_to(goblins[2].position) - crowd_second_initial_distance
+            crowd_second_max_progress = maxf(crowd_second_max_progress, second_gained)
+            if crowd_second_escape_time < 0.0 and second_gained >= 30.0:
+                crowd_second_escape_time = phase_elapsed
+    if crowd_dev:
+        for first in range(team_size):
+            if goblins[first].hp <= 0.0:
+                continue
+            for second in range(first + 1, team_size):
+                if goblins[second].hp > 0.0:
+                    var penetration := maxf(0.0, 24.0 - goblins[first].position.distance_to(goblins[second].position))
+                    max_pair_penetration_px = maxf(max_pair_penetration_px, penetration)
+                    if penetration > 1.0:
+                        overlap_violations += 1
     attack_timer += delta
     if attack_timer >= 0.7:
         attack_timer = 0.0
         var overlaps: Array[Node2D] = player.attack_area.get_overlapping_bodies()
         # Stable priority independent of physics-server overlap iteration order.
         for target in goblins:
-            if target.enabled and overlaps.has(target) and target.hp > 0.0 and target.action != "guard":
+            if target.enabled and overlaps.has(target) and target.hp > 0.0 and (target.action != "guard" or (crowd_dev and target.yield_until > elapsed)):
                 target.hp = maxf(0.0, target.hp - 1.0)
                 injuries.player += 1
                 break
@@ -670,6 +865,9 @@ func _process(_delta: float) -> void:
             " p99_observation_policy_ms=", percentile(decision_ms, 0.99), " legal_violations=", legal_violations,
             " budgeted_bursts=", budgeted_bursts, " timeout_fallbacks=", timeout_fallbacks,
             " stale_fallbacks=", stale_fallbacks,
+            " crowd_dev=", crowd_dev, " crowd_case=", crowd_case, " consent_enabled=", consent_enabled,
+            " request_counts=", request_counts, " actor_overlap_violations=", overlap_violations,
+            " max_pair_penetration_px=", snappedf(max_pair_penetration_px, 0.01),
             " godot_static_mem_mib=", snappedf(float(Performance.get_monitor(Performance.MEMORY_STATIC)) / 1048576.0, 0.1),
             " hits_by_policy=", injuries, " modes=", evaluation_modes, " duel=", duel,
             " learned_tactics=", tactics, " phase_tactics=", phase_tactics, " phase_hits=", phase_hits,
