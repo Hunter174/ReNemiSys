@@ -4,6 +4,8 @@ extends Node2D
 const Core = preload("res://combat_core.gd")
 const RADIUS := 12.0
 const ACTION_PERIOD := 0.2
+# Frozen before evaluating this extension. These are disjoint from 222–237 and 29011.
+const HELDOUT_SEEDS := [31001, 31009, 31019, 31033, 31051, 31063, 31069, 31079]
 
 class Actor extends CharacterBody2D:
     var mind
@@ -49,9 +51,12 @@ var decision_ms: Array[float] = []
 var phases := ["dodge_right", "dodge_left", "rush", "kite"]
 var current_phase := -1
 var current_mode := 0
+var evaluation_modes: Array[String] = ["learned", "fixed"]
+var duel := OS.get_environment("ARENA_DUEL") == "1"
 var legal_violations := 0
-var injuries := {"learned": 0, "fixed": 0, "player": 0}
+var injuries := {"learned": 0, "fixed": 0, "conservative": 0, "authored_fsm": 0, "player": 0}
 var tactics := {}
+var phase_tactics := {}
 var phase_hits := {}
 var noise_rng := RandomNumberGenerator.new()
 var noise_timer := 0.0
@@ -72,9 +77,15 @@ func percentile(values: Array[float], fraction: float) -> float:
     return values[clampi(ceili(float(values.size()) * fraction) - 1, 0, values.size() - 1)]
 
 func _ready() -> void:
+    if OS.get_environment("ARENA_EXTENDED") == "1" and not collecting:
+        evaluation_modes.append_array(["conservative", "authored_fsm"])
     if collecting:
+        if duel or OS.get_environment("ARENA_EXTENDED") == "1":
+            push_error("Rollouts require the original ten-goblin, two-team training contract")
+            get_tree().quit(1)
+            return
         training_seed = maxi(1, OS.get_environment("ARENA_TRAIN_SEED").to_int()) if OS.has_environment("ARENA_TRAIN_SEED") else 222
-        if training_seed in [15137, 29011] or OS.get_environment("ARENA_EVAL_SEED") == "15137" or OS.get_environment("ARENA_FINAL_SEED") == "29011":
+        if training_seed in [15137, 29011] or training_seed in HELDOUT_SEEDS or OS.has_environment("ARENA_HELDOUT_SEED") or OS.get_environment("ARENA_EVAL_SEED") == "15137" or OS.get_environment("ARENA_FINAL_SEED") == "29011":
             push_error("Held-out evaluation seed must not be used for training")
             get_tree().quit(1)
             return
@@ -85,7 +96,11 @@ func _ready() -> void:
         get_tree().quit(1)
         return
     Engine.max_fps = 0 if collecting else 60
-    scenario_seed = training_seed if collecting else (29011 if OS.get_environment("ARENA_FINAL_SEED") == "29011" else (15137 if OS.get_environment("ARENA_EVAL_SEED") == "15137" else 991))
+    if OS.has_environment("ARENA_HELDOUT_SEED") and not int(OS.get_environment("ARENA_HELDOUT_SEED")) in HELDOUT_SEEDS:
+        push_error("Evaluation seed is not in the predeclared held-out set")
+        get_tree().quit(1)
+        return
+    scenario_seed = training_seed if collecting else (int(OS.get_environment("ARENA_HELDOUT_SEED")) if OS.has_environment("ARENA_HELDOUT_SEED") else (29011 if OS.get_environment("ARENA_FINAL_SEED") == "29011" else (15137 if OS.get_environment("ARENA_EVAL_SEED") == "15137" else 991)))
     _wall(Vector2(480, 0), Vector2(960, 22))
     _wall(Vector2(480, 600), Vector2(960, 22))
     _wall(Vector2(0, 300), Vector2(22, 600))
@@ -129,8 +144,10 @@ func _record_phase() -> void:
     for goblin in goblins:
         if goblin.enabled and goblin.hp <= 0.0:
             fallen += 1
-    episode_results.append({"style": phases[current_phase], "team": "learned" if current_mode == 0 else "fixed",
-        "player_hp": snappedf(player.hp, 0.1), "goblins_defeated": fallen,
+    var participants := 1 if duel else 10
+    var outcome := "goblins_win" if player.hp <= 0.0 else ("player_win" if fallen >= participants else "timeout")
+    episode_results.append({"style": phases[current_phase], "team": evaluation_modes[current_mode],
+        "player_hp": snappedf(player.hp, 0.1), "goblins_defeated": fallen, "outcome": outcome,
         "opponent_trace": observed_styles.sha256_text(), "starts": starting_slots_hash})
 
 func _finish_transition(goblin: Actor, next_state: String, next_legal: Array, done: bool) -> void:
@@ -172,7 +189,7 @@ func _save_rollouts() -> bool:
     file.close()
     return true
 
-func _reset_phase(index: int) -> void:
+func _reset_phase(index: int, new_team: bool = false) -> void:
     current_phase = index
     # Rewind the opponent and placement streams at each paired phase. Both teams
     # see the SAME seeded style schedule and ten starting slots, not sequential RNG draws.
@@ -180,7 +197,7 @@ func _reset_phase(index: int) -> void:
     placement_rng.seed = scenario_seed + index * 1009
     player.position = Vector2(480, 300)
     player.velocity = Vector2.ZERO
-    player.hp = 100.0
+    player.hp = 3.0 if duel else 100.0
     player.stamina = 5.0
     player.cooldown = 0.0
     attack_timer = 0.0
@@ -189,7 +206,7 @@ func _reset_phase(index: int) -> void:
     observed_styles = ""
     for slot in range(10):
         var position := Vector2(175 + (slot % 5) * 150, 220 + (slot / 5) * 140)
-        if collecting or OS.get_environment("ARENA_EVAL_SEED") == "15137" or OS.get_environment("ARENA_FINAL_SEED") == "29011":
+        if collecting or scenario_seed != 991:
             position += Vector2(placement_rng.randi_range(-28, 28), placement_rng.randi_range(-22, 22))
         starts.append(position)
         starts_text += "%.1f,%.1f|" % [position.x, position.y]
@@ -197,7 +214,9 @@ func _reset_phase(index: int) -> void:
     for i in range(goblins.size()):
         var actor: Actor = goblins[i]
         var local_index := i % 10
-        actor.enabled = actor.learned if current_mode == 0 else not actor.learned
+        actor.enabled = (actor.learned if current_mode == 0 else not actor.learned) and (not duel or local_index == 7)
+        if new_team and not actor.learned:
+            actor.mind.player_moves.clear()
         actor.collision_layer = 2 if actor.enabled else 0
         actor.collision_mask = 7 if actor.enabled else 0
         actor.attack_area.monitoring = actor.enabled
@@ -214,21 +233,36 @@ func _reset_phase(index: int) -> void:
     decision_timer = 0.0
     noise_timer = 1.0 # Force a new, seeded observable style at the phase boundary.
 
+func _baseline_action(goblin: Actor, legal: Array) -> String:
+    var team: String = evaluation_modes[current_mode]
+    if team == "conservative":
+        return "retreat" if goblin.hp <= 3.0 and goblin.mind.courage < 0.5 else "guard"
+    if team == "authored_fsm":
+        if goblin.hp <= 2.0 and goblin.mind.courage < 0.5:
+            return "retreat"
+        # Uses previous *visible* moves, exactly like the shared policy, never the
+        # current scripted style or next move. Hand-authored policy is a strong baseline.
+        var belief: String = goblin.mind.player_belief()
+        var tactic: String = {"rush": "guard", "kite": "pressure", "dodge_right": "flank_right", "dodge_left": "flank_left"}.get(belief, "guard")
+        return tactic if legal.has(tactic) else "guard"
+    return "pressure" if legal.has("pressure") else "guard"
+
 func _physics_process(delta: float) -> void:
     if player == null:
         return
     elapsed += delta
-    if elapsed >= 40.0:
+    if elapsed >= float(evaluation_modes.size()) * 20.0:
         if not final_recorded:
             _record_phase()
             final_recorded = true
         return
-    var desired_mode := mini(int(elapsed / 20.0), 1)
+    var desired_mode := mini(int(elapsed / 20.0), evaluation_modes.size() - 1)
     var desired_phase := mini(int(fmod(elapsed, 20.0) / 5.0), 3)
     if desired_mode != current_mode or desired_phase != current_phase:
         _record_phase()
+        var new_team := desired_mode != current_mode
         current_mode = desired_mode
-        _reset_phase(desired_phase)
+        _reset_phase(desired_phase, new_team)
     var style: String = phases[current_phase]
     if OS.get_environment("ARENA_NOISY") == "1":
         noise_timer += delta
@@ -238,10 +272,13 @@ func _physics_process(delta: float) -> void:
             noisy_style = style if noise_rng.randf() < 0.8 else alternative
             observed_styles += noisy_style + ","
         style = noisy_style
-    var nearest: Actor = goblins[0] if current_mode == 0 else goblins[10]
+    var nearest: Actor = null
     for goblin in goblins:
-        if goblin.enabled and goblin.hp > 0.0 and goblin.position.distance_squared_to(player.position) < nearest.position.distance_squared_to(player.position):
+        if goblin.enabled and goblin.hp > 0.0 and (nearest == null or goblin.position.distance_squared_to(player.position) < nearest.position.distance_squared_to(player.position)):
             nearest = goblin
+    if nearest == null or player.hp <= 0.0:
+        player.velocity = Vector2.ZERO
+        return # The phase clock continues; dead combatants take no more actions.
     var toward := (nearest.position - player.position).normalized()
     var tangent := Vector2(-toward.y, toward.x)
     var player_move := toward if style == "rush" else (-toward if style == "kite" else (tangent if style == "dodge_right" else -tangent))
@@ -263,7 +300,7 @@ func _physics_process(delta: float) -> void:
             var state: String = goblin.mind.observation(goblin.hp <= 3.0, false)
             if collecting and goblin.learned:
                 _finish_transition(goblin, state, legal, goblin.hp <= 0.0)
-            goblin.action = policy.select(state, legal, 0.55 if collecting else 0.0) if goblin.learned else ("pressure" if legal.has("pressure") else "guard")
+            goblin.action = policy.select(state, legal, 0.55 if collecting else 0.0) if goblin.learned else _baseline_action(goblin, legal)
             if collecting and goblin.learned:
                 goblin.last_state = state
                 goblin.last_hp = goblin.hp
@@ -275,6 +312,8 @@ func _physics_process(delta: float) -> void:
                 goblin.last_action = goblin.action
             if goblin.learned:
                 tactics[goblin.action] = tactics.get(goblin.action, 0) + 1
+                var by_phase: String = "%s_%s" % [phases[current_phase], goblin.action]
+                phase_tactics[by_phase] = phase_tactics.get(by_phase, 0) + 1
             goblin.mind.observe_player(cue) # After choice; only visible velocity, not the scripted intent.
         decision_ms.append(float(Time.get_ticks_usec() - start) / 1000.0)
     for goblin in goblins:
@@ -306,8 +345,8 @@ func _physics_process(delta: float) -> void:
                 goblin.cooldown = 0.7
                 player.hp -= 1.0
                 goblin.hits += 1
-                injuries["learned" if goblin.learned else "fixed"] += 1
-                var phase_key: String = "%s_%s" % [phases[current_phase], "learned" if goblin.learned else "fixed"]
+                injuries[evaluation_modes[current_mode]] += 1
+                var phase_key: String = "%s_%s" % [phases[current_phase], evaluation_modes[current_mode]]
                 phase_hits[phase_key] = phase_hits.get(phase_key, 0) + 1
     attack_timer += delta
     if attack_timer >= 0.7:
@@ -326,11 +365,12 @@ func _process(_delta: float) -> void:
     if last_frame_us != 0:
         frame_intervals.append(float(now - last_frame_us) / 1000.0)
     last_frame_us = now
-    if elapsed >= 40.0 and final_recorded and (OS.get_environment("ARENA_AUTORUN") == "1" or collecting):
-        var paired_inputs := episode_results.size() == 8
+    if elapsed >= float(evaluation_modes.size()) * 20.0 and final_recorded and (OS.get_environment("ARENA_AUTORUN") == "1" or collecting):
+        var paired_inputs := episode_results.size() == evaluation_modes.size() * 4
         if paired_inputs:
-            for phase in range(4):
-                paired_inputs = paired_inputs and episode_results[phase].starts == episode_results[phase + 4].starts and episode_results[phase].opponent_trace == episode_results[phase + 4].opponent_trace
+            for mode in range(1, evaluation_modes.size()):
+                for phase in range(4):
+                    paired_inputs = paired_inputs and episode_results[phase].starts == episode_results[mode * 4 + phase].starts and episode_results[phase].opponent_trace == episode_results[mode * 4 + phase].opponent_trace
         if not paired_inputs:
             push_error("Paired fights used different starting positions or opponent style schedules")
             get_tree().quit(1)
@@ -340,16 +380,17 @@ func _process(_delta: float) -> void:
             get_tree().quit(1)
             return
         print("PHYSICS_ARENA p95_frame_ms=", percentile(frame_intervals, 0.95), " max_frame_ms=", frame_intervals.max(),
-            " p50_10_active_decision_ms=", percentile(decision_ms, 0.5),
-            " p95_10_active_decision_ms=", percentile(decision_ms, 0.95),
-            " p99_10_active_decision_ms=", percentile(decision_ms, 0.99), " legal_violations=", legal_violations,
-            " learned_hits=", injuries.learned, " fixed_hits=", injuries.fixed, " player_hits=", injuries.player,
-            " learned_tactics=", tactics, " phase_hits=", phase_hits,
+            " active_agents=", 1 if duel else 10, " p50_observation_policy_ms=", percentile(decision_ms, 0.5),
+            " p95_observation_policy_ms=", percentile(decision_ms, 0.95),
+            " p99_observation_policy_ms=", percentile(decision_ms, 0.99), " legal_violations=", legal_violations,
+            " hits_by_policy=", injuries, " modes=", evaluation_modes, " duel=", duel,
+            " learned_tactics=", tactics, " phase_tactics=", phase_tactics, " phase_hits=", phase_hits,
             " episode_outcomes=", episode_results,
             " noisy_variant=", OS.get_environment("ARENA_NOISY") == "1", " paired_inputs=", paired_inputs,
-            " source=" , "physics" if physics_policy else "abstract", " rollouts=", rollouts.size(),
+            " source=", "physics" if physics_policy else "abstract", " rollouts=", rollouts.size(),
             " persistent_courage=", goblins[0].mind.courage)
-        get_tree().quit(1 if legal_violations > 0 or injuries.learned + injuries.fixed == 0 else 0)
+        var total_hits: int = int(injuries.learned) + int(injuries.fixed) + int(injuries.conservative) + int(injuries.authored_fsm)
+        get_tree().quit(1 if legal_violations > 0 or total_hits == 0 else 0)
 
 func _draw() -> void:
     if player == null:
@@ -358,5 +399,5 @@ func _draw() -> void:
     for goblin in goblins:
         if goblin.enabled:
             draw_circle(goblin.position, RADIUS, Color(0.8, 0.4, 0.15) if goblin.learned else Color(0.4, 0.4, 0.4))
-    draw_string(ThemeDB.fallback_font, Vector2(20, 34), "Physical hitboxes | blue: player | " + ("orange: learned" if current_mode == 0 else "gray: fixed") + " | phase: " + phases[current_phase], HORIZONTAL_ALIGNMENT_LEFT, -1, 16)
-    draw_string(ThemeDB.fallback_font, Vector2(20, 570), "10 active per run; paired learned/fixed episodes. Physics combat still simplified; training is abstract.", HORIZONTAL_ALIGNMENT_LEFT, -1, 14)
+    draw_string(ThemeDB.fallback_font, Vector2(20, 34), "Physical hitboxes | blue: player | " + evaluation_modes[current_mode] + " | phase: " + phases[current_phase], HORIZONTAL_ALIGNMENT_LEFT, -1, 16)
+    draw_string(ThemeDB.fallback_font, Vector2(20, 570), "Paired " + ("duels" if duel else "ten-goblin bouts") + "; policy trained offline on physics. Prototype only.", HORIZONTAL_ALIGNMENT_LEFT, -1, 14)
