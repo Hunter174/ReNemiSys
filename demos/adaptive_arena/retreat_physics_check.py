@@ -56,10 +56,14 @@ def outcome(godot, project, case, agents, enabled, injection=None):
             raise ValueError("Baseline did not reproduce the dogpile")
     if case in ("deny", "edge") and (counts["deny"] < 4 or max(progress) > 2.0):
         raise ValueError("Rational refusal/wall did not prevent forced movement")
-    if case == "counter" and (counts["counter"] < 1 or min(progress) < 30.0):
+    if case in ("counter", "edge_open") and (counts["counter"] < 1 or min(progress) < 30.0):
         raise ValueError("Alternative corridor did not enable independent retreat")
+    if case == "edge_open" and counts["yield"]:
+        raise ValueError("Open wall exit must not require another goblin's consent")
     if case == "relay" and (counts["yield"] < 1 or min(progress) < 30.0):
         raise ValueError("Two-hop outward relay did not allow physical exit")
+    if case == "contested" and (counts["yield"] < 1 or counts["conflicts"] < 1):
+        raise ValueError("Two simultaneous requests were allowed to book the same ally")
     if case == "multiple" and (counts["yield"] < 2 or min(x["second_egress_px"] for x in rows) < 30.0):
         raise ValueError("One of the simultaneous requesters was trapped")
     if case in ("death", "unload") and (counts["cancelled"] < 1 or min(progress) < 30.0):
@@ -76,7 +80,7 @@ def main():
     if not args.godot.is_file():
         parser.error("Godot executable not found")
     cases = [("approve", n, mode, None) for n in (8, 10, 20) for mode in (False, True)]
-    cases.extend((case, 10, True, None) for case in ("deny", "counter", "relay", "edge", "multiple", "death", "unload"))
+    cases.extend((case, 10, True, None) for case in ("deny", "counter", "relay", "edge", "edge_open", "multiple", "contested", "death", "unload"))
     cases.extend(("approve", 10, True, injection) for injection in ("ARENA_CROWD_STALE", "ARENA_CROWD_EXPIRE"))
     for case, agents, enabled, injection in cases:
         print("RETREAT_PHYSICS_CHECK", json.dumps(outcome(args.godot, Path(__file__).resolve().parent,

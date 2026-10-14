@@ -39,6 +39,7 @@ class Actor extends CharacterBody2D:
     var actor_id := -1
     var yield_direction := Vector2.ZERO
     var yield_until := 0.0
+    var yield_requester_id := -1
     var retreat_route := Vector2.ZERO
 
     func _ready() -> void:
@@ -141,7 +142,7 @@ func _ready() -> void:
         return
     if crowd_dev or consent_enabled:
         var dev_seed := OS.get_environment("ARENA_DEV_SEED")
-        if not crowd_dev or not dev_seed.is_valid_int() or not dev_seed.to_int() in range(900, 908) or not crowd_case in ["approve", "deny", "counter", "edge", "multiple", "relay", "natural", "death", "unload"] or collecting or diagnostic or v3_blind or novel or reactive or duel or not v3 or not refined or not physics_policy or OS.get_environment("ARENA_SINGLE_TEAM") != "learned" or OS.has_environment("ARENA_HELDOUT_SEED") or frame_budget_enabled or fake_stale or fake_slow_us > 0:
+        if not crowd_dev or not dev_seed.is_valid_int() or not dev_seed.to_int() in range(900, 908) or not crowd_case in ["approve", "deny", "counter", "edge", "edge_open", "multiple", "contested", "relay", "natural", "death", "unload"] or collecting or diagnostic or v3_blind or novel or reactive or duel or not v3 or not refined or not physics_policy or OS.get_environment("ARENA_SINGLE_TEAM") != "learned" or OS.has_environment("ARENA_HELDOUT_SEED") or frame_budget_enabled or fake_stale or fake_slow_us > 0:
             push_error("Consent tests require isolated crowd fixtures and development seeds 900–907 only")
             get_tree().quit(1)
             return
@@ -425,6 +426,7 @@ func _reset_phase(index: int, new_team: bool = false) -> void:
         actor.action = "guard"
         actor.yield_direction = Vector2.ZERO
         actor.yield_until = 0.0
+        actor.yield_requester_id = -1
         actor.retreat_route = Vector2.ZERO
     if crowd_dev and crowd_case != "natural":
         _reset_crowd_fixture()
@@ -436,14 +438,17 @@ func _reset_crowd_fixture() -> void:
     # egress; their scores are NEVER evidence of learned combat or blind quality.
     request_revision += 1
     request_tick = 0
-    player.position = Vector2(850, 300) if crowd_case == "edge" else Vector2(480, 300)
+    player.position = Vector2(850, 300) if crowd_case in ["edge", "edge_open"] else Vector2(480, 300)
     for actor in goblins:
         if not actor.enabled:
             continue
         var slot := actor.actor_id
         actor.position = Vector2(150 + (slot % 5) * 140, 430 + int(slot / 5) * 34)
-    goblins[0].position = Vector2(908, 300) if crowd_case == "edge" else Vector2(530, 300)
-    goblins[1].position = Vector2(935, 300) if crowd_case == "edge" else Vector2(555, 300)
+    goblins[0].position = Vector2(908, 300) if crowd_case in ["edge", "edge_open"] else Vector2(530, 300)
+    goblins[1].position = Vector2(935, 300) if crowd_case in ["edge", "edge_open"] else Vector2(555, 300)
+    if crowd_case == "edge":
+        goblins[2].position = Vector2(908, 332)
+        goblins[3].position = Vector2(908, 268)
     if crowd_case in ["deny", "counter"]:
         goblins[1].hp = 1.0 # A recipient may rationally refuse to expose itself.
     if crowd_case == "deny":
@@ -452,6 +457,9 @@ func _reset_crowd_fixture() -> void:
     if crowd_case == "multiple":
         goblins[2].position = Vector2(530, 390)
         goblins[3].position = Vector2(555, 390)
+    if crowd_case == "contested":
+        goblins[0].position = Vector2(530, 287)
+        goblins[2].position = Vector2(530, 313)
     if crowd_case == "relay":
         goblins[2].position = Vector2(555, 332)
         goblins[3].position = Vector2(555, 268)
@@ -501,13 +509,18 @@ func _resolve_crowd_requests() -> void:
             # slots before authorizing the whole batch; no partially forced yield.
             var legal_plan: bool = not reply.plans.is_empty() and reply.plans.size() <= 2
             var batch_targets: Array[Vector2] = []
+            var moving_ids: Array = []
+            for plan in reply.plans:
+                if moving_ids.has(plan.id):
+                    legal_plan = false
+                moving_ids.append(plan.id)
             for plan in reply.plans:
                 var recipient_id: int = plan.id
                 if recipient_id < 0 or recipient_id >= team_size:
                     legal_plan = false
                     break
                 var recipient: Actor = goblins[recipient_id]
-                if not recipient.enabled or recipient.hp <= 0.0 or recipient.action == "retreat" or recipient.position.distance_to(plan.target) > 36.01 or not Rect2(24, 24, 912, 552).has_point(plan.target):
+                if not recipient.enabled or recipient.hp <= 0.0 or recipient.action == "retreat" or (recipient.yield_until > elapsed and recipient.yield_requester_id != actor.actor_id) or recipient.position.distance_to(plan.target) > 36.01 or not retreat_planner._path_free(recipient.position, plan.target, peers, moving_ids, Rect2(0, 0, 960, 600), player.position):
                     legal_plan = false
                 for target in reserved + batch_targets:
                     if target.distance_to(plan.target) < 25.0:
@@ -521,6 +534,7 @@ func _resolve_crowd_requests() -> void:
                     var recipient: Actor = goblins[plan.id]
                     recipient.yield_direction = plan.direction
                     recipient.yield_until = elapsed + 0.36
+                    recipient.yield_requester_id = actor.actor_id
                     reserved.append(plan.target)
         if status == "deny" or status == "invalid":
             actor.action = "guard" # Request cannot override a refusal or wall.
@@ -634,6 +648,7 @@ func _physics_process(delta: float) -> void:
         if recipient.yield_until > elapsed:
             request_counts.cancelled += 1
         recipient.yield_until = elapsed
+        recipient.yield_requester_id = -1
         recipient.hp = 0.0
         recipient.action = "guard"
         recipient.collision_layer = 0
@@ -705,7 +720,7 @@ func _physics_process(delta: float) -> void:
                 phase_spent_samples[spent_key] = phase_spent_samples.get(spent_key, 0) + 1
             if crowd_dev and crowd_case != "natural":
                 # Authored physical obstruction exercise, NOT a learned-policy win.
-                goblin.action = "retreat" if goblin.actor_id == 0 or (crowd_case == "multiple" and goblin.actor_id == 2) else "guard"
+                goblin.action = "retreat" if goblin.actor_id == 0 or (crowd_case in ["multiple", "contested"] and goblin.actor_id == 2) else "guard"
             if collecting and goblin.learned:
                 goblin.last_state = state
                 goblin.last_hp = goblin.hp

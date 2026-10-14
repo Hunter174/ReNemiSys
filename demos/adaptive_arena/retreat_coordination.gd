@@ -23,14 +23,13 @@ func negotiate(requester: Dictionary, peers: Array, player: Vector2, bounds: Rec
     var answer := {"status": "clear", "requester": requester.id, "recipient": -1,
         "revision": revision, "expires_tick": tick + 1, "route": away, "plans": [], "hops": 0}
     if not _within_bounds(requester.position + away * LANE_STEP, bounds):
-        answer.status = "deny" # Wall: no complete retreat step even if allies consent.
-        answer.route = Vector2.ZERO
-        return answer
+        # A wall blocks this outward lane, not every independently legal exit.
+        return _counter_or_deny(answer, requester, away, peers, bounds, player)
     if blocker.is_empty():
         return answer
     answer.recipient = blocker.id
     if not _willing(requester, blocker, player):
-        return _counter_or_deny(answer, requester, away, peers, bounds)
+        return _counter_or_deny(answer, requester, away, peers, bounds, player)
     var plans: Array = []
     var visited := {requester.id: true}
     if _plan_yield(requester, blocker, away, peers, player, bounds, 1, visited, plans):
@@ -38,7 +37,7 @@ func negotiate(requester: Dictionary, peers: Array, player: Vector2, bounds: Rec
         answer.plans = plans
         answer.hops = plans.size()
         return answer
-    return _counter_or_deny(answer, requester, away, peers, bounds)
+    return _counter_or_deny(answer, requester, away, peers, bounds, player)
 
 func valid_response(response: Dictionary, revision: int, tick: int, requester_id: int) -> bool:
     return response.get("revision") == revision and response.get("expires_tick") == tick + 1 and response.get("requester") == requester_id and response.get("status") in ["clear", "yield", "counter", "deny"]
@@ -72,9 +71,13 @@ func _within_bounds(position: Vector2, bounds: Rect2) -> bool:
     return bounds.grow(-24.0).has_point(position)
 
 func _path_free(origin: Vector2, target: Vector2, peers: Array, ignored: Array, bounds: Rect2, player: Vector2) -> bool:
-    if not _within_bounds(target, bounds) or target.distance_to(player) < SEPARATION:
+    if not _within_bounds(target, bounds):
         return false
     var segment := target - origin
+    # A free destination is not enough: the motion can sweep through the player.
+    var player_fraction := clampf((player - origin).dot(segment) / maxf(1.0, segment.length_squared()), 0.0, 1.0)
+    if player.distance_to(origin + segment * player_fraction) < SEPARATION:
+        return false
     for peer in peers:
         if not _valid_actor(peer) or ignored.has(peer.id) or peer.hp <= 0.0:
             continue
@@ -111,11 +114,11 @@ func _plan_yield(requester: Dictionary, recipient: Dictionary, direction: Vector
                         return true
     return false
 
-func _counter_or_deny(answer: Dictionary, requester: Dictionary, away: Vector2, peers: Array, bounds: Rect2) -> Dictionary:
+func _counter_or_deny(answer: Dictionary, requester: Dictionary, away: Vector2, peers: Array, bounds: Rect2, player: Vector2) -> Dictionary:
     var side := Vector2(-away.y, away.x)
     for sign_value in [1.0, -1.0]:
         var route: Vector2 = side * sign_value
-        if _path_free(requester.position, requester.position + route * LANE_STEP, peers, [requester.id], bounds, Vector2(-9999, -9999)):
+        if _path_free(requester.position, requester.position + route * LANE_STEP, peers, [requester.id], bounds, player):
             answer.status = "counter"
             answer.route = route
             return answer

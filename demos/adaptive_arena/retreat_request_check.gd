@@ -51,5 +51,24 @@ func run() -> void:
         quit(1)
         return
     checks += 1
+    var open_wall: Dictionary = planner.negotiate(actor(0, Vector2(920, 300), 1.0, "retreat", 0.2),
+        [], Vector2(850, 300), bounds, 11, 4)
+    if not assert_case(open_wall.status == "counter" and open_wall.route == Vector2.DOWN and open_wall.plans.is_empty(), "wall does not forbid an independently legal sideways exit"):
+        quit(1)
+        return
+    checks += 1
+    # The destination lies >25px from this player, but the 36px movement
+    # segment passes only 18px away. A target-only check would admit it.
+    var crossing_player := Vector2(548, 318)
+    if not assert_case(not planner._path_free(Vector2(530, 300), Vector2(530, 336), [], [0], bounds, crossing_player), "swept movement cannot cross player"):
+        quit(1)
+        return
+    checks += 1
+    var alternate: Dictionary = planner._counter_or_deny({"status": "deny", "plans": []}, requester,
+        Vector2.RIGHT, [injured], bounds, crossing_player)
+    if not assert_case(alternate.status == "counter" and alternate.route == Vector2.UP, "refusal cannot offer a counter-route through player"):
+        quit(1)
+        return
+    checks += 1
     print("RETREAT_REQUEST_CHECK checks=", checks, " failures=0")
     quit()
