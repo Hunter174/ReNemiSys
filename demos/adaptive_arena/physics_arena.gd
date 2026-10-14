@@ -69,6 +69,8 @@ var last_frame_us := 0
 var frame_intervals: Array[float] = []
 var decision_ms: Array[float] = []
 var full_decision_ms: Array[float] = []
+var crowd_policy_ms: Array[float] = []
+var crowd_request_ms: Array[float] = []
 var phases := ["dodge_right", "dodge_left", "rush", "kite"]
 var novel := OS.get_environment("ARENA_NOVEL") == "1"
 var reactive := OS.get_environment("ARENA_REACTIVE") == "1"
@@ -123,6 +125,7 @@ var crowd_second_max_progress := 0.0
 var crowd_second_escape_time := -1.0
 var overlap_violations := 0
 var max_pair_penetration_px := 0.0
+var overlap_examples := [] # First few development-only contacts, not a sampled rate.
 var low_stamina_deaths := 0 # Low stamina AT lethal hit, not proof it caused the death.
 var phase_spent_samples := {}
 var diag_rows := []
@@ -745,8 +748,12 @@ func _physics_process(delta: float) -> void:
                 var by_phase: String = "%s_%s" % [phases[current_phase], goblin.action]
                 phase_tactics[by_phase] = phase_tactics.get(by_phase, 0) + 1
             goblin.mind.observe_player("unknown" if v3 and player.velocity.length_squared() < 1225.0 else cue) # After choice; only visible velocity.
-        if crowd_dev and consent_enabled:
-            _resolve_crowd_requests()
+        if crowd_dev:
+            var requests_start := Time.get_ticks_usec()
+            crowd_policy_ms.append(float(requests_start - start) / 1000.0)
+            if consent_enabled:
+                _resolve_crowd_requests()
+            crowd_request_ms.append(float(Time.get_ticks_usec() - requests_start) / 1000.0)
         var elapsed_decision := float(Time.get_ticks_usec() - start) / 1000.0
         if frame_budget_enabled or fake_stale:
             var stale := game_revision != revision_at_start
@@ -832,6 +839,14 @@ func _physics_process(delta: float) -> void:
                     max_pair_penetration_px = maxf(max_pair_penetration_px, penetration)
                     if penetration > 1.0:
                         overlap_violations += 1
+                        if overlap_examples.size() < 8:
+                            overlap_examples.append({"time": snappedf(elapsed, 0.01), "a": first, "b": second,
+                                "px": snappedf(penetration, 0.01), "a_action": goblins[first].action,
+                                "b_action": goblins[second].action,
+                                "a_x": snappedf(goblins[first].position.x, 0.1),
+                                "a_y": snappedf(goblins[first].position.y, 0.1),
+                                "b_x": snappedf(goblins[second].position.x, 0.1),
+                                "b_y": snappedf(goblins[second].position.y, 0.1)})
     attack_timer += delta
     if attack_timer >= 0.7:
         attack_timer = 0.0
@@ -892,6 +907,11 @@ func _process(_delta: float) -> void:
             " crowd_dev=", crowd_dev, " crowd_case=", crowd_case, " consent_enabled=", consent_enabled,
             " request_counts=", request_counts, " actor_overlap_violations=", overlap_violations,
             " max_pair_penetration_px=", snappedf(max_pair_penetration_px, 0.01),
+            " crowd_policy_p95_ms=", percentile(crowd_policy_ms, 0.95) if not crowd_policy_ms.is_empty() else -1.0,
+            " crowd_policy_p99_ms=", percentile(crowd_policy_ms, 0.99) if not crowd_policy_ms.is_empty() else -1.0,
+            " crowd_request_p95_ms=", percentile(crowd_request_ms, 0.95) if not crowd_request_ms.is_empty() else -1.0,
+            " crowd_request_p99_ms=", percentile(crowd_request_ms, 0.99) if not crowd_request_ms.is_empty() else -1.0,
+            " overlap_examples=", overlap_examples,
             " godot_static_mem_mib=", snappedf(float(Performance.get_monitor(Performance.MEMORY_STATIC)) / 1048576.0, 0.1),
             " hits_by_policy=", injuries, " modes=", evaluation_modes, " duel=", duel,
             " learned_tactics=", tactics, " phase_tactics=", phase_tactics, " phase_hits=", phase_hits,
