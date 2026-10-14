@@ -109,6 +109,7 @@ var refined := OS.get_environment("ARENA_REFINED") == "1"
 var v3 := OS.get_environment("ARENA_V3") == "1"
 var diagnostic := OS.get_environment("ARENA_DIAGNOSTIC") == "1"
 var crowd_dev := OS.get_environment("ARENA_CROWD_DEV") == "1"
+var crowd_separation_trial := crowd_dev and OS.get_environment("ARENA_CROWD_SEPARATION_TRIAL") != "0"
 var consent_enabled := OS.get_environment("ARENA_RETREAT_REQUESTS") == "1"
 var crowd_case := OS.get_environment("ARENA_CROWD_CASE")
 var crowd_inject_stale := OS.get_environment("ARENA_CROWD_STALE") == "1"
@@ -125,6 +126,8 @@ var crowd_second_max_progress := 0.0
 var crowd_second_escape_time := -1.0
 var overlap_violations := 0
 var max_pair_penetration_px := 0.0
+var contact_correction_attempts := 0
+var max_contact_correction_px := 0.0
 var overlap_examples := [] # First few development-only contacts, not a sampled rate.
 var low_stamina_deaths := 0 # Low stamina AT lethal hit, not proof it caused the death.
 var phase_spent_samples := {}
@@ -139,6 +142,10 @@ func percentile(values: Array[float], fraction: float) -> float:
     return values[clampi(ceili(float(values.size()) * fraction) - 1, 0, values.size() - 1)]
 
 func _ready() -> void:
+    if OS.has_environment("ARENA_CROWD_SEPARATION_TRIAL") and not crowd_dev:
+        push_error("Collision recovery switch requires isolated crowd development fixtures")
+        get_tree().quit(1)
+        return
     if (crowd_inject_stale or crowd_inject_expiry) and not crowd_dev:
         push_error("Crowd revision and expiry injection are forbidden outside the isolated development fixture")
         get_tree().quit(1)
@@ -586,6 +593,30 @@ func _baseline_action(goblin: Actor, legal: Array) -> String:
         return tactic if legal.has(tactic) else "guard"
     return "pressure" if legal.has("pressure") else "guard"
 
+func _correct_contact(a: Actor, b: Actor, gap: Vector2, distance: float, used: Array[float]) -> void:
+    if distance <= 0.001:
+        return # Unresolvable coincidence is recorded as a failure, never teleported.
+    # Identical collision-checked depenetration in both modes. Per-frame requested
+    # motion is <=2px per actor, even in a chain; neither consent nor action changes.
+    var step := minf(2.0, (24.2 - distance) * 0.5)
+    var a_step := minf(step, maxf(0.0, 2.0 - used[a.actor_id]))
+    var b_step := minf(step, maxf(0.0, 2.0 - used[b.actor_id]))
+    if a_step <= 0.0 and b_step <= 0.0:
+        return
+    var direction := gap / distance
+    var a_before := a.position
+    var b_before := b.position
+    if a_step > 0.0:
+        a.move_and_collide(direction * a_step, false, 0.001)
+    if b_step > 0.0:
+        b.move_and_collide(-direction * b_step, false, 0.001)
+    var a_moved := a.position.distance_to(a_before)
+    var b_moved := b.position.distance_to(b_before)
+    used[a.actor_id] += a_moved
+    used[b.actor_id] += b_moved
+    max_contact_correction_px = maxf(max_contact_correction_px, maxf(used[a.actor_id], used[b.actor_id]))
+    contact_correction_attempts += 1
+
 func _physics_process(delta: float) -> void:
     if player == null:
         return
@@ -850,23 +881,68 @@ func _physics_process(delta: float) -> void:
             if crowd_second_escape_time < 0.0 and second_gained >= 30.0:
                 crowd_second_escape_time = phase_elapsed
     if crowd_dev:
+        var before_violations := overlap_violations
+        var before_max := max_pair_penetration_px
+        var before_examples := overlap_examples.size()
+        var corrected := false
+        var correction_used: Array[float] = []
+        if crowd_separation_trial:
+            correction_used.resize(team_size)
+            correction_used.fill(0.0)
+        # Keep the original single lightweight scan in the common case.
         for first in range(team_size):
             if goblins[first].hp <= 0.0:
                 continue
             for second in range(first + 1, team_size):
-                if goblins[second].hp > 0.0:
-                    var penetration := maxf(0.0, 24.0 - goblins[first].position.distance_to(goblins[second].position))
+                if goblins[second].hp <= 0.0:
+                    continue
+                var a: Actor = goblins[first]
+                var b: Actor = goblins[second]
+                var penetration := maxf(0.0, 24.0 - a.position.distance_to(b.position))
+                if crowd_separation_trial and penetration > 1.0:
+                    var gap: Vector2 = a.position - b.position
+                    _correct_contact(a, b, gap, gap.length(), correction_used)
+                    corrected = true
+                max_pair_penetration_px = maxf(max_pair_penetration_px, penetration)
+                if penetration > 1.0:
+                    overlap_violations += 1
+                    if overlap_examples.size() < 8:
+                        overlap_examples.append({"time": snappedf(elapsed, 0.01), "a": first, "b": second,
+                            "px": snappedf(penetration, 0.01), "a_action": a.action,
+                            "b_action": b.action, "a_x": snappedf(a.position.x, 0.1),
+                            "a_y": snappedf(a.position.y, 0.1), "b_x": snappedf(b.position.x, 0.1),
+                            "b_y": snappedf(b.position.y, 0.1)})
+        if corrected:
+            # Only actual contact frames pay for another correction sweep.
+            for first in range(team_size):
+                for second in range(first + 1, team_size):
+                    if goblins[first].hp <= 0.0 or goblins[second].hp <= 0.0:
+                        continue
+                    var a: Actor = goblins[first]
+                    var b: Actor = goblins[second]
+                    var gap: Vector2 = a.position - b.position
+                    if gap.length_squared() < 529.0:
+                        _correct_contact(a, b, gap, gap.length(), correction_used)
+            # Discard provisional contacts; report the actual FINAL positions.
+            overlap_violations = before_violations
+            max_pair_penetration_px = before_max
+            overlap_examples.resize(before_examples)
+            for first in range(team_size):
+                for second in range(first + 1, team_size):
+                    if goblins[first].hp <= 0.0 or goblins[second].hp <= 0.0:
+                        continue
+                    var a: Actor = goblins[first]
+                    var b: Actor = goblins[second]
+                    var penetration := maxf(0.0, 24.0 - a.position.distance_to(b.position))
                     max_pair_penetration_px = maxf(max_pair_penetration_px, penetration)
                     if penetration > 1.0:
                         overlap_violations += 1
                         if overlap_examples.size() < 8:
                             overlap_examples.append({"time": snappedf(elapsed, 0.01), "a": first, "b": second,
-                                "px": snappedf(penetration, 0.01), "a_action": goblins[first].action,
-                                "b_action": goblins[second].action,
-                                "a_x": snappedf(goblins[first].position.x, 0.1),
-                                "a_y": snappedf(goblins[first].position.y, 0.1),
-                                "b_x": snappedf(goblins[second].position.x, 0.1),
-                                "b_y": snappedf(goblins[second].position.y, 0.1)})
+                                "px": snappedf(penetration, 0.01), "a_action": a.action,
+                                "b_action": b.action, "a_x": snappedf(a.position.x, 0.1),
+                                "a_y": snappedf(a.position.y, 0.1), "b_x": snappedf(b.position.x, 0.1),
+                                "b_y": snappedf(b.position.y, 0.1)})
     attack_timer += delta
     if attack_timer >= 0.7:
         attack_timer = 0.0
@@ -925,8 +1001,12 @@ func _process(_delta: float) -> void:
             " budgeted_bursts=", budgeted_bursts, " timeout_fallbacks=", timeout_fallbacks,
             " stale_fallbacks=", stale_fallbacks,
             " crowd_dev=", crowd_dev, " crowd_case=", crowd_case, " consent_enabled=", consent_enabled,
+            " contact_recovery=", crowd_separation_trial,
+            " crowd_movement_version=", ("consent-recovery-dev-v2" if crowd_separation_trial else ("consent-dev-v1" if crowd_dev else "unchanged")),
             " request_counts=", request_counts, " actor_overlap_violations=", overlap_violations,
             " max_pair_penetration_px=", snappedf(max_pair_penetration_px, 0.01),
+            " contact_correction_attempts=", contact_correction_attempts,
+            " max_contact_correction_px=", snappedf(max_contact_correction_px, 0.01),
             " crowd_policy_p95_ms=", percentile(crowd_policy_ms, 0.95) if not crowd_policy_ms.is_empty() else -1.0,
             " crowd_policy_p99_ms=", percentile(crowd_policy_ms, 0.99) if not crowd_policy_ms.is_empty() else -1.0,
             " crowd_request_p95_ms=", percentile(crowd_request_ms, 0.95) if not crowd_request_ms.is_empty() else -1.0,
