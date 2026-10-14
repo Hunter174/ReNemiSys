@@ -77,13 +77,17 @@ func _path_free(origin: Vector2, target: Vector2, peers: Array, ignored: Array, 
     # A free destination is not enough: the motion can sweep through the player.
     var player_fraction := clampf((player - origin).dot(segment) / maxf(1.0, segment.length_squared()), 0.0, 1.0)
     if player.distance_to(origin + segment * player_fraction) < SEPARATION:
-        return false
+        if player_fraction > 0.0 or player.distance_to(target) <= player.distance_to(origin):
+            return false
     for peer in peers:
         if not _valid_actor(peer) or ignored.has(peer.id) or peer.hp <= 0.0:
             continue
         var fraction := clampf((peer.position - origin).dot(segment) / maxf(1.0, segment.length_squared()), 0.0, 1.0)
         if peer.position.distance_to(origin + segment * fraction) < SEPARATION:
-            return false
+            # A nearby body BEHIND the start cannot forbid moving strictly
+            # away from it. Forward/tangent sweeps still require clearance.
+            if fraction > 0.0 or peer.position.distance_to(target) <= peer.position.distance_to(origin):
+                return false
     return true
 
 func _plan_yield(requester: Dictionary, recipient: Dictionary, direction: Vector2,

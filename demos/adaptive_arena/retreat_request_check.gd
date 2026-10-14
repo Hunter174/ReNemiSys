@@ -70,5 +70,13 @@ func run() -> void:
         quit(1)
         return
     checks += 1
+    if not assert_case(planner._path_free(Vector2(100, 100), Vector2(136, 100),
+        [actor(3, Vector2(99, 100))], [0], bounds, Vector2(480, 300))
+        and not planner._path_free(Vector2(100, 100), Vector2(136, 100),
+        [actor(3, Vector2(101, 100))], [0], bounds, Vector2(480, 300)),
+        "moving away from existing contact is legal, moving through it is not"):
+        quit(1)
+        return
+    checks += 1
     print("RETREAT_REQUEST_CHECK checks=", checks, " failures=0")
     quit()

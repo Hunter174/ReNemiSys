@@ -294,7 +294,7 @@ func _record_phase() -> void:
         record["egress_px"] = snappedf(crowd_max_progress, 0.1)
         record["escape_time_s"] = snappedf(crowd_escape_time, 0.01) if crowd_escape_time >= 0.0 else -1.0
         record["stuck"] = crowd_escape_time < 0.0
-        if crowd_case == "multiple":
+        if crowd_case in ["multiple", "contested"]:
             record["second_egress_px"] = snappedf(crowd_second_max_progress, 0.1)
             record["second_escape_time_s"] = snappedf(crowd_second_escape_time, 0.01) if crowd_second_escape_time >= 0.0 else -1.0
     episode_results.append(record)
@@ -474,7 +474,7 @@ func _reset_crowd_fixture() -> void:
     crowd_initial_distance = player.position.distance_to(goblins[0].position)
     crowd_max_progress = 0.0
     crowd_escape_time = -1.0
-    crowd_second_initial_distance = player.position.distance_to(goblins[2].position) if crowd_case == "multiple" else 0.0
+    crowd_second_initial_distance = player.position.distance_to(goblins[2].position) if crowd_case in ["multiple", "contested"] else 0.0
     crowd_second_max_progress = 0.0
     crowd_second_escape_time = -1.0
 
@@ -531,7 +531,12 @@ func _resolve_crowd_requests() -> void:
                 batch_targets.append(plan.target)
             if not legal_plan:
                 request_counts.conflicts += 1
-                status = "deny"
+                # A rejected ally reservation cannot veto an independent legal
+                # corridor. Discard ALL unapproved plans before considering one.
+                reply.plans = []
+                reply = retreat_planner._counter_or_deny(reply, sender,
+                    (actor.position - player.position).normalized(), peers, Rect2(0, 0, 960, 600), player.position)
+                status = reply.status
             else:
                 for plan in reply.plans:
                     var recipient: Actor = goblins[plan.id]
@@ -542,7 +547,22 @@ func _resolve_crowd_requests() -> void:
         if status == "deny" or status == "invalid":
             actor.action = "guard" # Request cannot override a refusal or wall.
         elif status == "counter" or status == "clear":
-            actor.retreat_route = reply.route # Only the requester chooses its route.
+            var destination: Vector2 = actor.position + reply.route * 36.0
+            # The same synchronous game snapshot produced this clear/counter
+            # route; Godot resolves its live body motion. Only reservations made
+            # earlier in THIS decision burst can have changed since proposal.
+            var free := true
+            var path: Vector2 = destination - actor.position
+            for target in reserved:
+                var t := clampf((target - actor.position).dot(path) / maxf(1.0, path.length_squared()), 0.0, 1.0)
+                if target.distance_to(actor.position + path * t) < 25.0:
+                    free = false
+            if free:
+                actor.retreat_route = reply.route # Only the requester chooses its route.
+            else:
+                request_counts.conflicts += 1
+                status = "deny"
+                actor.action = "guard"
         request_counts[status] = request_counts.get(status, 0) + 1
 
 func _advance_blind_phase(index: int) -> void:
@@ -824,7 +844,7 @@ func _physics_process(delta: float) -> void:
         crowd_max_progress = maxf(crowd_max_progress, gained)
         if crowd_escape_time < 0.0 and gained >= 30.0:
             crowd_escape_time = phase_elapsed
-        if crowd_case == "multiple":
+        if crowd_case in ["multiple", "contested"]:
             var second_gained := player.position.distance_to(goblins[2].position) - crowd_second_initial_distance
             crowd_second_max_progress = maxf(crowd_second_max_progress, second_gained)
             if crowd_second_escape_time < 0.0 and second_gained >= 30.0:

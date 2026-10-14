@@ -62,8 +62,10 @@ def outcome(godot, project, case, agents, enabled, injection=None):
         raise ValueError("Open wall exit must not require another goblin's consent")
     if case == "relay" and (counts["yield"] < 1 or min(progress) < 30.0):
         raise ValueError("Two-hop outward relay did not allow physical exit")
-    if case == "contested" and (counts["yield"] < 1 or counts["conflicts"] < 1):
-        raise ValueError("Two simultaneous requests were allowed to book the same ally")
+    if case == "contested" and (counts["yield"] < 1 or counts["conflicts"] < 1 or counts["counter"] < 1
+                                or min(x["second_egress_px"] for x in rows) < 30.0
+                                or any(not 0.0 <= x["second_escape_time_s"] <= 1.2 for x in rows)):
+        raise ValueError("Rejected helper booking prevented the other requester from taking an open route")
     if case == "multiple" and (counts["yield"] < 2 or min(x["second_egress_px"] for x in rows) < 30.0):
         raise ValueError("One of the simultaneous requesters was trapped")
     if case in ("death", "unload") and (counts["cancelled"] < 1 or min(progress) < 30.0):
