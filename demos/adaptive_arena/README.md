@@ -2,6 +2,8 @@
 
 This **separate Godot 4.4.1 project** does not change or load ReNemiSys's existing game scenes, SaLMon or MLGodotKit. It is a first, deliberately small RL **tabular** baseline, not a trained neural-network opponent or a real combat game. A single learned Q-table is shared by all goblins. Each goblin supplies its own persistent courage/ambition and a rolling five-move estimate of the player's observed style. The model cannot see the opponent's *next* move. Godot's abstract combat environment computes outcomes, then offline Q-learning updates the shared weights; live inference never trains. Only authoritative game code could eventually grant an epiphany event. Training happens in a headless script, never in a physics tick.
 
+**Watch the consent-based retreat prototype live:** [LIVE_RETREAT_DEMO.md](LIVE_RETREAT_DEMO.md) gives a one-command rendered launcher and interactive keys for approval, refusal, counter-routes, contested allies and natural development fights. This is a separate opt-in physics scene, not the main game.
+
 ```sh
 # From ReNemiSys/: train, exercise assertions and save local pretrained Q weights.
 Godot-4.4.1 --headless --path demos/adaptive_arena --script res://arena_check.gd

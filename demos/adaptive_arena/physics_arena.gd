@@ -109,6 +109,7 @@ var refined := OS.get_environment("ARENA_REFINED") == "1"
 var v3 := OS.get_environment("ARENA_V3") == "1"
 var diagnostic := OS.get_environment("ARENA_DIAGNOSTIC") == "1"
 var crowd_dev := OS.get_environment("ARENA_CROWD_DEV") == "1"
+var crowd_live := OS.get_environment("ARENA_CROWD_LIVE") == "1"
 var crowd_separation_trial := crowd_dev and OS.get_environment("ARENA_CROWD_SEPARATION_TRIAL") != "0"
 var consent_enabled := OS.get_environment("ARENA_RETREAT_REQUESTS") == "1"
 var crowd_case := OS.get_environment("ARENA_CROWD_CASE")
@@ -118,6 +119,7 @@ var retreat_planner = RetreatPlanner.new()
 var request_revision := 0
 var request_tick := 0
 var request_counts := {"yield": 0, "deny": 0, "counter": 0, "clear": 0, "invalid": 0, "expired": 0, "conflicts": 0, "cancelled": 0}
+var last_crowd_replies := {} # Only displayed by the opt-in live development scene.
 var crowd_initial_distance := 0.0
 var crowd_max_progress := 0.0
 var crowd_escape_time := -1.0
@@ -142,6 +144,10 @@ func percentile(values: Array[float], fraction: float) -> float:
     return values[clampi(ceili(float(values.size()) * fraction) - 1, 0, values.size() - 1)]
 
 func _ready() -> void:
+    if crowd_live and (not crowd_dev or OS.get_environment("ARENA_AUTORUN") == "1"):
+        push_error("Live consent viewer requires interactive isolated crowd development mode")
+        get_tree().quit(1)
+        return
     if OS.has_environment("ARENA_CROWD_SEPARATION_TRIAL") and not crowd_dev:
         push_error("Collision recovery switch requires isolated crowd development fixtures")
         get_tree().quit(1)
@@ -512,6 +518,9 @@ func _resolve_crowd_requests() -> void:
             else:
                 request_counts.invalid += 1
             actor.action = "guard"
+            if crowd_live:
+                last_crowd_replies[actor.actor_id] = {"status": "expired" if reply.expires_tick <= request_tick else "invalid",
+                    "recipient": reply.get("recipient", -1), "at": elapsed}
             continue
         var status: String = reply.status
         if status == "yield":
@@ -571,6 +580,9 @@ func _resolve_crowd_requests() -> void:
                 status = "deny"
                 actor.action = "guard"
         request_counts[status] = request_counts.get(status, 0) + 1
+        if crowd_live:
+            last_crowd_replies[actor.actor_id] = {"status": status, "recipient": reply.get("recipient", -1),
+                "at": elapsed, "hops": reply.get("hops", 0)}
 
 func _advance_blind_phase(index: int) -> void:
     # Continuing fight: preserve HP, stamina, position, per-agent beliefs and
