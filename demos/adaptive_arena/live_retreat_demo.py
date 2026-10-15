@@ -13,25 +13,28 @@ import subprocess
 import sys
 
 V3_SHA256 = "1b46652d17e7966d8dba63696e7cb9dfe67a32d63a2c4911bf2119a16ee162e1"
-CASES = ("approve", "deny", "counter", "relay", "edge_open", "contested",
+CASES = ("coward_dogpile", "approve", "deny", "counter", "relay", "edge_open", "contested",
          "natural", "multiple", "edge", "unload")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--godot", type=Path, help="Godot 4.4.1 console executable (or set GODOT_BIN)")
-    parser.add_argument("--case", choices=CASES, default="approve")
+    parser.add_argument("--case", choices=CASES, default="coward_dogpile")
     parser.add_argument("--agents", type=int, choices=(8, 10, 20), default=10)
     parser.add_argument("--seed", type=int, default=900, help="Development seed 900–907 only")
     parser.add_argument("--consent-off", action="store_true", help="Paired blocked route, same collision recovery")
     parser.add_argument("--legacy-contact", action="store_true", help="Explicit old development physics, not the v2 default")
-    parser.add_argument("--smoke", action="store_true", help="2-second developer-only auto-exit")
+    parser.add_argument("--smoke", action="store_true", help="Brief developer-only auto-exit")
+    parser.add_argument("--smoke-at", type=float, help="With --smoke, exit at this simulated second (0.1–5)")
     parser.add_argument("--screenshot", action="store_true", help="With --smoke, save a rendered user:// preview PNG")
     args = parser.parse_args()
     if args.seed not in range(900, 908):
         parser.error("Live fixtures only allow development seeds 900–907")
     if args.screenshot and not args.smoke:
         parser.error("--screenshot requires --smoke")
+    if args.smoke_at is not None and (not args.smoke or not 0.1 <= args.smoke_at <= 5.0):
+        parser.error("--smoke-at requires --smoke and a simulated time from 0.1 to 5")
     godot = args.godot or os.getenv("GODOT_BIN") or shutil.which("godot")
     if not godot or not Path(godot).is_file():
         parser.error("Godot 4.4.1 binary not found; pass --godot /path/to/Godot_v4.4.1-stable_win64_console.exe")
@@ -57,11 +60,13 @@ def main():
         env["ARENA_CROWD_SEPARATION_TRIAL"] = "0"
     if args.smoke:
         env["ARENA_CROWD_LIVE_SMOKE"] = "1"
+        if args.smoke_at is not None:
+            env["ARENA_CROWD_LIVE_SMOKE_AT"] = str(args.smoke_at)
     if args.screenshot:
         env["ARENA_CROWD_LIVE_SCREENSHOT"] = "1"
     project = Path(__file__).resolve().parent
     print(f"Launching isolated rendered viewer: {args.case}, agents={args.agents}, consent={'OFF' if args.consent_off else 'ON'}, seed={args.seed}", flush=True)
-    print("1–9/0 scenarios | N consent | R reset | Tab next development seed | S slow motion | Space pause | Esc quit. This is NOT #15 blind evidence.", flush=True)
+    print("Default: visible scripted low-HP/courage coward dogpile (NOT learned fear). Keys: 1 dogpile, 2 refuse, 3 counter, 4 relay, 7 natural; N consent, S slow, R reset, Esc quit.", flush=True)
     command = [str(Path(godot).resolve()), "--path", str(project), "--rendering-method", "gl_compatibility", "res://retreat_live_demo.tscn"]
     if args.smoke:
         if not args.screenshot:

@@ -1,8 +1,9 @@
 extends "res://physics_arena.gd"
 # Interactive, DEV-ONLY view of the existing authoritative arena. No new AI,
-# movement rule, weight or LLM dependency. Never used for evaluation/training.
+# physics movement rule, weight or LLM dependency. Scripted coward intent and
+# placement are explicitly live-only, NEVER evaluation/training.
 const CASE_KEYS := {
-    KEY_1: "approve", KEY_2: "deny", KEY_3: "counter", KEY_4: "relay",
+    KEY_1: "coward_dogpile", KEY_2: "deny", KEY_3: "counter", KEY_4: "relay",
     KEY_5: "edge_open", KEY_6: "contested", KEY_7: "natural",
     KEY_8: "multiple", KEY_9: "edge", KEY_0: "unload",
 }
@@ -19,6 +20,9 @@ func _ready() -> void:
         return
     super._ready() # Enforces the 900–907 seed, policy and arena-only contract.
     if player != null:
+        if crowd_case == "coward_dogpile":
+            live_slow = true
+            Engine.time_scale = 0.35 # Let viewers see the snap reply and real egress.
         print("RETREAT_LIVE_READY case=", crowd_case, " consent=", consent_enabled,
             " recovery=", crowd_separation_trial, " seed=", scenario_seed)
 
@@ -72,6 +76,9 @@ func _input(event: InputEvent) -> void:
     var key: int = event.keycode
     if CASE_KEYS.has(key):
         crowd_case = CASE_KEYS[key]
+        if crowd_case == "coward_dogpile" and not live_slow:
+            live_slow = true
+            Engine.time_scale = 0.35
         live_round = 1
         _restart()
     else:
@@ -122,13 +129,16 @@ func _physics_process(delta: float) -> void:
             recent_events.push_front("Game rejected contested slot; requester retains legal options")
             if recent_events.size() > 3:
                 recent_events.pop_back()
-    if OS.get_environment("ARENA_CROWD_LIVE_SMOKE") == "1" and elapsed >= 2.0 and not smoke_done:
+    var smoke_at := float(OS.get_environment("ARENA_CROWD_LIVE_SMOKE_AT")) if OS.has_environment("ARENA_CROWD_LIVE_SMOKE_AT") else (0.34 if crowd_case == "coward_dogpile" else 2.0)
+    if OS.get_environment("ARENA_CROWD_LIVE_SMOKE") == "1" and elapsed >= smoke_at and not smoke_done:
         smoke_done = true
         if OS.get_environment("ARENA_CROWD_LIVE_SCREENSHOT") == "1":
             _finish_rendered_smoke()
         else:
             print("RETREAT_LIVE_SMOKE case=", crowd_case, " consent=", consent_enabled,
-                " replies=", request_counts, " elapsed=", snappedf(elapsed, 0.01))
+                " replies=", request_counts, " elapsed=", snappedf(elapsed, 0.01),
+                " overlaps=", overlap_violations, " max_px=", snappedf(max_pair_penetration_px, 0.01),
+                " escape_px=", snappedf(crowd_max_progress, 0.1), " first30_s=", snappedf(crowd_escape_time, 0.01))
             get_tree().quit()
 
 func _finish_rendered_smoke() -> void:
@@ -138,7 +148,9 @@ func _finish_rendered_smoke() -> void:
     var path := "user://retreat_live_preview.png"
     var error := get_viewport().get_texture().get_image().save_png(path)
     print("RETREAT_LIVE_SMOKE screenshot=", ProjectSettings.globalize_path(path),
-        " save_error=", error, " replies=", request_counts)
+        " save_error=", error, " replies=", request_counts,
+        " overlaps=", overlap_violations, " max_px=", snappedf(max_pair_penetration_px, 0.01),
+        " escape_px=", snappedf(crowd_max_progress, 0.1), " first30_s=", snappedf(crowd_escape_time, 0.01))
     get_tree().quit(0 if error == OK else 1)
 
 func _draw_link(from: Vector2, to: Vector2, tint: Color) -> void:
@@ -158,7 +170,14 @@ func _draw() -> void:
         if not actor.enabled or actor.hp <= 0.0:
             continue
         var tint := Color(0.35, 0.95, 0.55) if actor.yield_until > elapsed else (Color(1.0, 0.65, 0.2) if actor.action == "retreat" else Color.WHITE)
-        draw_string(font, actor.position + Vector2(14, -12), "#%d %s" % [actor.actor_id, actor.action], HORIZONTAL_ALIGNMENT_LEFT, -1, 11, tint)
+        if crowd_case == "coward_dogpile":
+            # Packed bodies need short IDs, not ten overlapping "guard" labels.
+            draw_string(font, actor.position + Vector2(-4, 4), str(actor.actor_id), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.WHITE)
+            if actor.actor_id == 0:
+                draw_arc(actor.position, 16.0, 0.0, TAU, 24, Color(1.0, 0.22, 0.25), 2.0)
+                draw_string(font, actor.position + Vector2(16, -20), "COWARD RETREAT", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(1.0, 0.6, 0.25))
+        else:
+            draw_string(font, actor.position + Vector2(14, -12), "#%d %s" % [actor.actor_id, actor.action], HORIZONTAL_ALIGNMENT_LEFT, -1, 11, tint)
         if actor.yield_until > elapsed:
             _draw_link(actor.position, actor.position + actor.yield_direction * 24.0, tint)
     for requester_id in last_crowd_replies:
@@ -175,12 +194,14 @@ func _draw() -> void:
     var counts := "YIELD %d   REFUSE %d   COUNTER %d   REJECT %d   HP %.0f   HITS %d" % [request_counts.yield, request_counts.deny, request_counts.counter, request_counts.conflicts, player.hp, injuries.learned]
     draw_string(font, Vector2(18, 49), counts, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.75, 0.94, 1.0))
     var progress := ""
-    if crowd_case != "natural":
+    if crowd_case == "coward_dogpile":
+        progress = "SCRIPTED COWARD #0 (HP 1, courage 0.2) retreats | physical exit %.0f px, 30px at %.2fs" % [crowd_max_progress, crowd_escape_time]
+    elif crowd_case != "natural":
         progress = "EGRESS %.0f px | first 30px %.2fs" % [crowd_max_progress, crowd_escape_time]
     else:
         progress = "NATURAL FIGHT: AI picks tactics; no scripted egress or survival claim"
     draw_string(font, Vector2(18, 70), progress, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(1.0, 0.87, 0.55))
-    draw_string(font, Vector2(18, 92), "1 blocked + consent  2 injured ally refuses  3 independent route  4 two-hop  5 open wall  6 contested  7 natural", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.9, 0.9, 0.9))
+    draw_string(font, Vector2(18, 92), "1 COWARD DOGPILE  2 injured ally refuses  3 independent route  4 two-hop  5 open wall  6 contested  7 natural", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.9, 0.9, 0.9))
     draw_string(font, Vector2(18, 110), "8 two requesters  9 blocked wall  0 unload | N consent  R reset  Tab next seed  S slow  Space pause  Esc quit", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.9, 0.9, 0.9))
     var latest := "Recent decisions: " + (" | ".join(PackedStringArray(recent_events)) if consent_enabled else "requests disabled; compare physical egress")
     draw_string(font, Vector2(18, 135), latest, HORIZONTAL_ALIGNMENT_LEFT, 930, 12, Color(0.45, 1.0, 0.7))

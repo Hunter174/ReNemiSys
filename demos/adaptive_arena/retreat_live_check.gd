@@ -27,6 +27,19 @@ func run() -> void:
         quit(1)
         return
     var identity: float = scene.goblins[0].mind.courage
+    key(scene, KEY_1)
+    var nearby := 0
+    for actor in scene.goblins:
+        if actor.enabled and actor.position.distance_to(scene.player.position) <= 110.0:
+            nearby += 1
+    if not check(scene.crowd_case == "coward_dogpile" and scene.goblins[0].hp == 1.0
+            and is_equal_approx(identity, 0.2) and nearby >= 10 and scene.live_slow, "visible ten-body low-HP coward dogpile"):
+        quit(1)
+        return
+    key(scene, KEY_S) # Restore normal speed for the remaining keyboard checks.
+    if not check(not scene.live_slow and is_equal_approx(Engine.time_scale, 1.0), "dogpile slow motion can be disabled"):
+        quit(1)
+        return
     key(scene, KEY_2)
     if not check(scene.crowd_case == "deny" and scene.goblins[1].hp == 1.0, "rational refusal fixture"):
         quit(1)
@@ -67,5 +80,5 @@ func run() -> void:
     if not check(scene.goblins[0].mind.courage == identity and scene.last_crowd_replies.is_empty(), "reset has no epiphany"):
         quit(1)
         return
-    print("RETREAT_LIVE_CHECK cases=11 failures=0")
+    print("RETREAT_LIVE_CHECK cases=13 failures=0")
     quit()

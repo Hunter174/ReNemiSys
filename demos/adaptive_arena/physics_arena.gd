@@ -158,7 +158,7 @@ func _ready() -> void:
         return
     if crowd_dev or consent_enabled:
         var dev_seed := OS.get_environment("ARENA_DEV_SEED")
-        if not crowd_dev or not dev_seed.is_valid_int() or not dev_seed.to_int() in range(900, 908) or not crowd_case in ["approve", "deny", "counter", "edge", "edge_open", "multiple", "contested", "relay", "natural", "death", "unload"] or collecting or diagnostic or v3_blind or novel or reactive or duel or not v3 or not refined or not physics_policy or OS.get_environment("ARENA_SINGLE_TEAM") != "learned" or OS.has_environment("ARENA_HELDOUT_SEED") or frame_budget_enabled or fake_stale or fake_slow_us > 0:
+        if not crowd_dev or not dev_seed.is_valid_int() or not dev_seed.to_int() in range(900, 908) or not (crowd_case in ["approve", "deny", "counter", "edge", "edge_open", "multiple", "contested", "relay", "natural", "death", "unload"] or (crowd_live and crowd_case == "coward_dogpile")) or collecting or diagnostic or v3_blind or novel or reactive or duel or not v3 or not refined or not physics_policy or OS.get_environment("ARENA_SINGLE_TEAM") != "learned" or OS.has_environment("ARENA_HELDOUT_SEED") or frame_budget_enabled or fake_stale or fake_slow_us > 0:
             push_error("Consent tests require isolated crowd fixtures and development seeds 900–907 only")
             get_tree().quit(1)
             return
@@ -462,6 +462,15 @@ func _reset_crowd_fixture() -> void:
         actor.position = Vector2(150 + (slot % 5) * 140, 430 + int(slot / 5) * 34)
     goblins[0].position = Vector2(908, 300) if crowd_case in ["edge", "edge_open"] else Vector2(530, 300)
     goblins[1].position = Vector2(935, 300) if crowd_case in ["edge", "edge_open"] else Vector2(555, 300)
+    if crowd_case == "coward_dogpile":
+        # Separate LIVE-ONLY display: ten nearby bodies rather than the #13
+        # focused two-body fixture. Keep both escape and consent lanes open.
+        goblins[0].hp = 1.0
+        var ring := [Vector2(470, 250), Vector2(495, 252), Vector2(455, 280),
+            Vector2(455, 320), Vector2(490, 345), Vector2(518, 340),
+            Vector2(518, 260), Vector2(584, 320)]
+        for i in range(mini(ring.size(), team_size - 2)):
+            goblins[i + 2].position = ring[i]
     if crowd_case == "edge":
         goblins[2].position = Vector2(908, 332)
         goblins[3].position = Vector2(908, 268)
@@ -786,7 +795,12 @@ func _physics_process(delta: float) -> void:
                 phase_spent_samples[spent_key] = phase_spent_samples.get(spent_key, 0) + 1
             if crowd_dev and crowd_case != "natural":
                 # Authored physical obstruction exercise, NOT a learned-policy win.
-                goblin.action = "retreat" if goblin.actor_id == 0 or (crowd_case in ["multiple", "contested"] and goblin.actor_id == 2) else "guard"
+                if crowd_case == "coward_dogpile":
+                    # Visible authored coward rule, never a claim that v3 learned fear.
+                    var coward: bool = goblin.actor_id == 0 and goblin.hp <= 2.0 and goblin.mind.courage < 0.5
+                    goblin.action = "retreat" if coward else "guard"
+                else:
+                    goblin.action = "retreat" if goblin.actor_id == 0 or (crowd_case in ["multiple", "contested"] and goblin.actor_id == 2) else "guard"
             if collecting and goblin.learned:
                 goblin.last_state = state
                 goblin.last_hp = goblin.hp
